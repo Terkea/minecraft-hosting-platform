@@ -1,0 +1,813 @@
+openapi: 3.0.3
+info:
+  title: Minecraft Server Hosting Platform API
+  description: Cloud-native Minecraft server hosting platform with full lifecycle control
+  version: 1.0.0
+  contact:
+    name: API Support
+    email: api@minecraft-platform.com
+
+servers:
+  - url: https://api.minecraft-platform.com/v1
+    description: Production server
+  - url: https://staging-api.minecraft-platform.com/v1
+    description: Staging server
+
+paths:
+  /servers:
+    get:
+      summary: List servers for authenticated user
+      operationId: listServers
+      tags: [Server Management]
+      parameters:
+        - name: status
+          in: query
+          description: Filter by server status
+          schema:
+            type: string
+            enum: [deploying, running, stopped, failed, terminating]
+        - name: limit
+          in: query
+          description: Maximum number of servers to return
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          description: Number of servers to skip
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: List of servers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  servers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ServerInstance'
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    post:
+      summary: Deploy new Minecraft server
+      operationId: deployServer
+      tags: [Server Management]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, sku_id, minecraft_version]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 50
+                  pattern: '^[a-zA-Z0-9-]+$'
+                  description: User-defined server name
+                sku_id:
+                  type: string
+                  format: uuid
+                  description: SKU configuration ID
+                minecraft_version:
+                  type: string
+                  description: Minecraft version (e.g., "1.20.1")
+                server_properties:
+                  type: object
+                  description: Custom server.properties overrides
+                  additionalProperties: true
+      responses:
+        '201':
+          description: Server deployment initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerInstance'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Server name already exists
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /servers/{serverId}:
+    get:
+      summary: Get server details
+      operationId: getServer
+      tags: [Server Management]
+      parameters:
+        - name: serverId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Server details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerInstance'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    patch:
+      summary: Update server configuration
+      operationId: updateServer
+      tags: [Server Management]
+      parameters:
+        - name: serverId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 50
+                  pattern: '^[a-zA-Z0-9-]+$'
+                server_properties:
+                  type: object
+                  additionalProperties: true
+                resource_limits:
+                  $ref: '#/components/schemas/ResourceLimits'
+      responses:
+        '200':
+          description: Server updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerInstance'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    delete:
+      summary: Delete server (with final backup)
+      operationId: deleteServer
+      tags: [Server Management]
+      parameters:
+        - name: serverId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '202':
+          description: Server deletion initiated
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /servers/{serverId}/lifecycle:
+    post:
+      summary: Control server lifecycle (start/stop/restart)
+      operationId: controlServerLifecycle
+      tags: [Server Management]
+      parameters:
+        - name: serverId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action:
+                  type: string
+                  enum: [start, stop, restart]
+      responses:
+        '200':
+          description: Lifecycle action initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerInstance'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Invalid state transition
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /servers/{serverId}/plugins:
+    get:
+      summary: List installed plugins for server
+      operationId: listServerPlugins
+      tags: [Plugin Management]
+      parameters:
+        - name: serverId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of installed plugins
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plugins:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ServerPluginInstallation'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    post:
+      summary: Install plugin on server
+      operationId: installPlugin
+      tags: [Plugin Management]
+      parameters:
+        - name: serverId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [plugin_id]
+              properties:
+                plugin_id:
+                  type: string
+                  format: uuid
+                config_overrides:
+                  type: object
+                  additionalProperties: true
+      responses:
+        '201':
+          description: Plugin installation initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerPluginInstallation'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Plugin already installed or incompatible
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /servers/{serverId}/plugins/{pluginInstallationId}:
+    delete:
+      summary: Remove plugin from server
+      operationId: removePlugin
+      tags: [Plugin Management]
+      parameters:
+        - name: serverId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: pluginInstallationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '202':
+          description: Plugin removal initiated
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /servers/{serverId}/backups:
+    get:
+      summary: List backups for server
+      operationId: listBackups
+      tags: [Backup Management]
+      parameters:
+        - name: serverId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        '200':
+          description: List of backups
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  backups:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BackupSnapshot'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    post:
+      summary: Create manual backup
+      operationId: createBackup
+      tags: [Backup Management]
+      parameters:
+        - name: serverId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '201':
+          description: Backup creation initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupSnapshot'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Backup already in progress
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /servers/{serverId}/backups/{backupId}/restore:
+    post:
+      summary: Restore server from backup
+      operationId: restoreFromBackup
+      tags: [Backup Management]
+      parameters:
+        - name: serverId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: backupId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '202':
+          description: Restore initiated
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Server must be stopped for restore
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /servers/{serverId}/metrics:
+    get:
+      summary: Get real-time server metrics
+      operationId: getServerMetrics
+      tags: [Monitoring]
+      parameters:
+        - name: serverId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: metric_types
+          in: query
+          description: Comma-separated list of metric types
+          schema:
+            type: string
+            example: "cpu_usage,memory_usage,player_count,tps"
+        - name: duration
+          in: query
+          description: Time range for historical data
+          schema:
+            type: string
+            enum: [1h, 6h, 24h, 7d]
+            default: 1h
+      responses:
+        '200':
+          description: Server metrics data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  metrics:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MetricData'
+                  current:
+                    $ref: '#/components/schemas/CurrentMetrics'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /skus:
+    get:
+      summary: List available SKU configurations
+      operationId: listSKUs
+      tags: [Configuration]
+      responses:
+        '200':
+          description: List of available SKUs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  skus:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SKUConfiguration'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /plugins:
+    get:
+      summary: Browse available plugins
+      operationId: listPlugins
+      tags: [Plugin Management]
+      parameters:
+        - name: minecraft_version
+          in: query
+          description: Filter by Minecraft version compatibility
+          schema:
+            type: string
+        - name: category
+          in: query
+          description: Filter by plugin category
+          schema:
+            type: string
+            enum: [utility, gameplay, admin, performance]
+        - name: search
+          in: query
+          description: Search plugin names and descriptions
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        '200':
+          description: List of available plugins
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plugins:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PluginPackage'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  schemas:
+    ServerInstance:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        sku_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [deploying, running, stopped, failed, terminating]
+        minecraft_version:
+          type: string
+        server_properties:
+          type: object
+          additionalProperties: true
+        resource_limits:
+          $ref: '#/components/schemas/ResourceLimits'
+        external_port:
+          type: integer
+          minimum: 1024
+          maximum: 65535
+        current_players:
+          type: integer
+          minimum: 0
+        max_players:
+          type: integer
+          minimum: 1
+        last_backup_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required: [id, name, sku_id, status, minecraft_version, external_port, current_players, max_players, created_at, updated_at]
+
+    SKUConfiguration:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        cpu_cores:
+          type: number
+          minimum: 0.5
+        memory_gb:
+          type: integer
+          minimum: 1
+        storage_gb:
+          type: integer
+          minimum: 5
+        max_players:
+          type: integer
+          minimum: 1
+        default_properties:
+          type: object
+          additionalProperties: true
+        monthly_price:
+          type: number
+          minimum: 0
+        created_at:
+          type: string
+          format: date-time
+      required: [id, name, cpu_cores, memory_gb, storage_gb, max_players, monthly_price, created_at]
+
+    ResourceLimits:
+      type: object
+      properties:
+        cpu_cores:
+          type: number
+          minimum: 0.5
+        memory_gb:
+          type: integer
+          minimum: 1
+        storage_gb:
+          type: integer
+          minimum: 5
+
+    PluginPackage:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        version:
+          type: string
+        minecraft_versions:
+          type: array
+          items:
+            type: string
+        description:
+          type: string
+        category:
+          type: string
+          enum: [utility, gameplay, admin, performance]
+        dependencies:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+      required: [id, name, version, minecraft_versions, description, category, created_at]
+
+    ServerPluginInstallation:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        plugin:
+          $ref: '#/components/schemas/PluginPackage'
+        status:
+          type: string
+          enum: [installing, installed, failed, removing]
+        config_overrides:
+          type: object
+          additionalProperties: true
+        installed_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required: [id, plugin, status, installed_at, updated_at]
+
+    BackupSnapshot:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        backup_type:
+          type: string
+          enum: [manual, scheduled, pre_termination]
+        size_bytes:
+          type: integer
+          minimum: 0
+        status:
+          type: string
+          enum: [creating, completed, failed, restoring]
+        retention_until:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+      required: [id, backup_type, size_bytes, status, retention_until, created_at]
+
+    MetricData:
+      type: object
+      properties:
+        metric_type:
+          type: string
+          enum: [cpu_usage, memory_usage, player_count, tps, disk_usage]
+        values:
+          type: array
+          items:
+            type: object
+            properties:
+              timestamp:
+                type: string
+                format: date-time
+              value:
+                type: number
+            required: [timestamp, value]
+        unit:
+          type: string
+      required: [metric_type, values, unit]
+
+    CurrentMetrics:
+      type: object
+      properties:
+        cpu_usage:
+          type: number
+          minimum: 0
+          maximum: 100
+        memory_usage:
+          type: number
+          minimum: 0
+          maximum: 100
+        player_count:
+          type: integer
+          minimum: 0
+        tps:
+          type: number
+          minimum: 0
+        disk_usage:
+          type: number
+          minimum: 0
+          maximum: 100
+        last_updated:
+          type: string
+          format: date-time
+      required: [last_updated]
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+        timestamp:
+          type: string
+          format: date-time
+      required: [error, message, timestamp]
+
+  responses:
+    BadRequest:
+      description: Invalid request parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+security:
+  - BearerAuth: []
