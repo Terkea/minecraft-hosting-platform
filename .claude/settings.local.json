@@ -9,7 +9,22 @@
       "Bash(.specify/scripts/bash/check-task-prerequisites.sh:*)",
       "Bash(go mod init:*)",
       "Bash(tree:*)",
-      "Bash(chmod:*)"
+      "Bash(chmod:*)",
+      "Bash(go test:*)",
+      "Bash(go:*)",
+      "Bash(echo $PATH)",
+      "Bash(wget:*)",
+      "Bash(sudo rm:*)",
+      "Bash(sudo tar:*)",
+      "Bash(/usr/local/go/bin/go:*)",
+      "Bash(export:*)",
+      "Bash(timeout:*)",
+      "Bash(npm:*)",
+      "Bash(node:*)",
+      "Bash(./bin/operator)",
+      "Bash(./scripts/setup-dev.sh:*)",
+      "Bash(source ~/.bashrc)",
+      "Bash(make:*)"
     ],
     "deny": [],
     "ask": []
