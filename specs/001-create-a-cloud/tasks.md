@@ -167,7 +167,10 @@
 - Performance and security requirements embedded in contract tests
 - Real-world business scenarios covered (graceful shutdown, backup quota, etc.)
 
-## Phase 3.3: Core Implementation (ONLY after tests are failing)
+## Phase 3.3: Core Implementation (ONLY after tests are failing) 📋 PENDING
+
+**Status**: Blocked until all Phase 3.2 contract tests are complete and failing
+**Summary**: Available in `specs/001-create-a-cloud/phase-3.3-summary.md`
 
 ### Data Models (Database Schema)
 - [ ] **T017** [P] User Account model in `backend/src/models/user_account.go`

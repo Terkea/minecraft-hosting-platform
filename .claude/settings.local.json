@@ -24,7 +24,10 @@
       "Bash(./bin/operator)",
       "Bash(./scripts/setup-dev.sh:*)",
       "Bash(source ~/.bashrc)",
-      "Bash(make:*)"
+      "Bash(make:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)"
     ],
     "deny": [],
     "ask": []
