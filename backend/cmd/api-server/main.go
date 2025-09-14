@@ -2,46 +2,33 @@ package main
 
 import (
 	"log"
-	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"minecraft-platform/src/api"
+	"minecraft-platform/src/services"
 )
 
 func main() {
 	// Create Gin router
 	r := gin.Default()
 
-	// Health check endpoint
-	r.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"status":  "healthy",
-			"service": "minecraft-platform-api",
-			"version": "1.0.0",
-		})
-	})
+	// Initialize services (with mock implementations for development)
+	serverLifecycle := services.NewServerLifecycleService(nil, nil) // TODO: Inject real dependencies
+	backupService := services.NewBackupService(serverLifecycle, "/var/backups")
+	configManager := services.NewConfigManagerService(serverLifecycle, nil, nil) // TODO: Inject K8s client and validator
+	metricsCollector := services.NewMetricsCollectorService(nil, nil) // TODO: Inject storage and NATS
 
-	// API status endpoint
-	r.GET("/api/status", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"message":     "Minecraft Platform API",
-			"environment": "development",
-			"ready":       true,
-		})
-	})
+	// Initialize API handlers
+	serversHandler := api.NewServersHandler(serverLifecycle, backupService, configManager, metricsCollector)
+	pluginsHandler := api.NewPluginsHandler(services.NewPluginManagerService(nil, nil)) // TODO: Inject real dependencies
 
-	// Placeholder route that shows we're ready for server endpoints
-	r.POST("/servers", func(c *gin.Context) {
-		// This is a placeholder - T005 contract test expects this to return 404
-		// When we implement T029, this will have proper logic
-		c.JSON(http.StatusNotImplemented, gin.H{
-			"error":   "not_implemented",
-			"message": "Server deployment endpoint not yet implemented (TDD Phase 3.2 in progress)",
-			"note":    "This endpoint will be implemented in Phase 3.3 after contract tests are complete",
-		})
-	})
+	// Register all routes
+	serversHandler.RegisterRoutes(r)
+	pluginsHandler.RegisterRoutes(r)
 
 	log.Println("Starting Minecraft Platform API server on :8080")
 	log.Println("Health check: http://localhost:8080/health")
-	log.Println("API status: http://localhost:8080/api/status")
+	log.Println("Server API: http://localhost:8080/api/servers")
+	log.Println("Phase 3.3 Core Implementation - All endpoints integrated with services")
 	log.Fatal(r.Run(":8080"))
 }
