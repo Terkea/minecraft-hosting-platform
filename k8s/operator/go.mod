@@ -1,3 +1,3 @@
 module minecraft-platform-operator
 
-go 1.21
+go 1.13

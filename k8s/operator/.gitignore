@@ -1,0 +1,71 @@
+# Kubernetes Operator specific gitignore
+
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/
+operator
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+coverage.txt
+
+# Go workspace file
+go.work
+
+# Dependency directories
+vendor/
+
+# IDE-specific files
+.vscode/
+.idea/
+
+# Environment configuration
+.env
+.env.local
+.env.test
+.env.production
+
+# Kubernetes development files
+config/dev/
+config/local/
+*.kubeconfig
+kubeconfig*
+
+# TLS certificates for development
+*.pem
+*.key
+*.crt
+tls/
+
+# Logs
+*.log
+logs/
+
+# Helm charts (if using Helm for deployment)
+charts/
+*.tgz
+
+# Kustomize build output
+kustomization.yaml.bak
+
+# Testing artifacts
+testdata/output/
+test-results/
+
+# Docker build context
+Dockerfile.local
+docker-compose.override.yml
+
+# Profiling files
+*.pprof
+
+# Temporary files
+tmp/
+temp/

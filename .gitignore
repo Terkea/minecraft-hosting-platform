@@ -1,0 +1,48 @@
+# Root level gitignore for Minecraft Server Platform
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Build artifacts
+dist/
+build/
+target/
+
+# Logs
+*.log
+logs/
+
+# Environment files
+.env
+.env.local
+.env.production
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Coverage reports
+coverage/
+*.coverage
+.nyc_output/
+
+# Dependencies (handled per component)
+node_modules/
+vendor/
+
+# IDE workspace files
+*.code-workspace
