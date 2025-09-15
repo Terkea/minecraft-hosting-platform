@@ -8,10 +8,9 @@ import (
 )
 
 func main() {
-	// Simple connection test
-	dsn := "postgres://root@localhost:26257/minecraft_platform?sslmode=disable"
-
-	log.Printf("Testing connection with DSN: %s", dsn)
+	// Test connection to CockroachDB container
+	dsn := "postgres://root@localhost:26257/defaultdb?sslmode=disable"
+	log.Printf("Testing connection with: %s", dsn)
 
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
@@ -23,11 +22,18 @@ func main() {
 		log.Fatalf("Failed to ping database: %v", err)
 	}
 
+	// Create database
+	_, err = db.Exec("CREATE DATABASE IF NOT EXISTS minecraft_platform")
+	if err != nil {
+		log.Printf("Warning: Could not create database: %v", err)
+	}
+
+	// Test query
 	var result int
 	err = db.QueryRow("SELECT 1").Scan(&result)
 	if err != nil {
 		log.Fatalf("Failed to query database: %v", err)
 	}
 
-	log.Printf("✅ Database connection successful! Query result: %d", result)
+	log.Printf("✅ Database connection successful! Result: %d", result)
 }

@@ -1,11 +1,60 @@
 version: '3.8'
 
 services:
+  # Backend API Server
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    container_name: minecraft-backend
+    ports:
+      - "8080:8080"
+    environment:
+      - DB_HOST=cockroachdb
+      - DB_PORT=26257
+      - DB_NAME=minecraft_platform
+      - DB_USER=root
+      - DB_PASSWORD=
+      - DB_SSL_MODE=disable
+      - NATS_URL=nats://nats:4222
+      - REDIS_URL=redis://redis:6379
+      - PORT=8080
+      - GIN_MODE=debug
+    depends_on:
+      cockroachdb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    networks:
+      - minecraft-network
+
+  # Frontend Svelte Application
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: minecraft-frontend
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:8080
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    networks:
+      - minecraft-network
+
   # CockroachDB for local development
   cockroachdb:
     image: cockroachdb/cockroach:v23.1.11
     container_name: minecraft-cockroachdb
-    command: start-single-node --insecure --listen-addr=0.0.0.0:26257 --http-addr=0.0.0.0:8080
+    command: start-single-node --insecure
     ports:
       - "26257:26257"  # SQL port
       - "8081:8080"    # Admin UI (avoiding conflict with API server)
@@ -20,6 +69,8 @@ services:
       timeout: 10s
       retries: 5
       start_period: 60s
+    networks:
+      - minecraft-network
 
   # NATS for real-time messaging
   nats:
@@ -40,6 +91,8 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+    networks:
+      - minecraft-network
 
   # Redis for caching
   redis:
@@ -55,6 +108,8 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+    networks:
+      - minecraft-network
 
   # Prometheus for monitoring (development)
   prometheus:
@@ -77,6 +132,8 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+    networks:
+      - minecraft-network
 
   # Grafana for visualization (development)
   grafana:
@@ -96,6 +153,8 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+    networks:
+      - minecraft-network
 
   # Jaeger for distributed tracing (development)
   jaeger:
@@ -111,6 +170,8 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+    networks:
+      - minecraft-network
 
 volumes:
   cockroach_data:
@@ -120,5 +181,6 @@ volumes:
   grafana_data:
 
 networks:
-  default:
+  minecraft-network:
+    driver: bridge
     name: minecraft-platform-dev

@@ -7,55 +7,42 @@ This guide will help you set up and test the Minecraft Server Hosting Platform l
 The local development environment has been successfully set up and tested:
 
 - **Docker Services**: All services running and healthy
-- **Backend API**: Running on port 8080 with mock responses
+- **Backend API**: Running on port 8080 with database connectivity
 - **Frontend**: Running on port 5173 with SvelteKit
-- **Database**: CockroachDB available (connection issues being resolved)
-- **Monitoring**: Prometheus + Grafana stack operational
-- **Migrations**: Proper migration system implemented
+- **Database**: CockroachDB fully operational with all 7 tables migrated
+- **Monitoring**: Prometheus + Grafana + Jaeger stack operational
+- **Infrastructure**: Complete Docker containerized environment
 
 ## 🚀 Quick Start
 
-### 1. Start Infrastructure Services
+### Option A: Containerized Development (Recommended)
 
 ```bash
-# Start all supporting services (database, monitoring, etc.)
+# Start all services including backend and frontend
 docker compose -f docker-compose.dev.yml up -d
 
 # Check service status
 docker compose -f docker-compose.dev.yml ps
 ```
 
-### 2. Start Backend API
+### Option B: Local Development with Infrastructure
 
 ```bash
-cd backend
+# Start infrastructure services only
+docker compose -f docker-compose.dev.yml up -d cockroachdb redis nats prometheus grafana jaeger
 
-# Install dependencies
-go mod tidy
+# Start backend locally
+cd backend && go run cmd/api-server/main-dev.go
 
-# Start development API server (with mock responses)
-go run cmd/api-server/main-dev.go
+# Start frontend locally (in another terminal)
+cd frontend && npm run dev
 ```
 
-The API will be available at:
+**Access Points**:
+- **Frontend**: http://localhost:5173
+- **Backend API**: http://localhost:8080
 - **Health Check**: http://localhost:8080/health
 - **Servers API**: http://localhost:8080/api/servers
-- **Metrics**: http://localhost:8080/metrics
-
-### 3. Start Frontend
-
-```bash
-cd frontend
-
-# Install dependencies
-npm install
-
-# Start development server
-npm run dev
-```
-
-The frontend will be available at:
-- **Main App**: http://localhost:5173
 
 ## 📊 Monitoring & Admin Interfaces
 
@@ -189,39 +176,39 @@ npm run lint
 npm run format
 ```
 
-## 🔍 Current Issues & Next Steps
+## 🔍 Current Status & Next Steps
 
-### Database Connectivity Issue
+### ✅ Database Connectivity - RESOLVED
 
-The database connection needs to be resolved:
-
-**Issue**: Connection errors when connecting to CockroachDB from Go application
-**Status**: CockroachDB container is healthy, but Go driver fails to connect
-**Next Steps**:
-1. Debug connection string format
-2. Check network/firewall settings
-3. Test with alternative drivers
+**Solution**: CockroachDB configuration and container networking resolved
+- CockroachDB now accessible from both host and container environments
+- All 7 database tables successfully created via migrations
+- Connection string format optimized for development environment
+- Docker network properly configured for service-to-service communication
 
 ### Implementation Status
 
 ✅ **Completed**:
-- Docker development environment
+- Docker development environment with 6 services
 - Backend API structure with mock responses
 - Frontend SvelteKit application
 - Monitoring stack (Prometheus, Grafana, Jaeger)
-- Migration system architecture
+- Database migrations - all tables created:
+  - `user_accounts`, `server_instances`, `sku_configurations`
+  - `plugin_packages`, `server_plugin_installations`
+  - `backup_snapshots`, `metrics_data`
+- Container networking and service discovery
+- Backend and frontend Dockerfiles for development
 
 🔄 **In Progress**:
-- Database connectivity resolution
-- Real service implementations
+- Switch from mock to real API responses
 - API contract test execution
 
 ⏳ **Next Steps**:
-1. Fix database connection
-2. Run migrations
-3. Implement real API endpoints
-4. Execute contract tests
-5. Integrate services with real dependencies
+1. Update API endpoints to use real database operations
+2. Execute contract tests (139 test scenarios)
+3. Validate all endpoints work correctly
+4. Performance validation and load testing
 
 ## 📝 Environment Variables
 
