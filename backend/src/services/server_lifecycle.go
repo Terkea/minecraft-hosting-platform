@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"../models"
+	"minecraft-platform/src/models"
 )
 
 // ServerLifecycleService handles server deployment, lifecycle management, and Kubernetes integration

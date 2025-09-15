@@ -1,4 +1,4 @@
-2# Tasks: Cloud-Native Minecraft Server Hosting Platform
+# Tasks: Cloud-Native Minecraft Server Hosting Platform
 
 ## 🎉 Project Status: COMPLETED
 

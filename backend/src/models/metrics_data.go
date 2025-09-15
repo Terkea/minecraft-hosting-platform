@@ -1,9 +1,19 @@
 package models
 
 import (
+	"errors"
 	"time"
 
 	"gorm.io/gorm"
+)
+
+// Common validation errors
+var (
+	ErrTenantIDRequired   = errors.New("tenant ID is required")
+	ErrServerIDRequired   = errors.New("server ID is required")
+	ErrMetricTypeRequired = errors.New("metric type is required")
+	ErrMetricNameRequired = errors.New("metric name is required")
+	ErrMetricUnitRequired = errors.New("metric unit is required")
 )
 
 // MetricsData represents time-series metrics storage for server monitoring

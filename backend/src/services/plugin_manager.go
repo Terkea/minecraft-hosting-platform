@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"../models"
+	"minecraft-platform/src/models"
 )
 
 // PluginManager handles plugin installation, configuration, and lifecycle management

@@ -61,8 +61,14 @@ func NewDatabase(config *DatabaseConfig) (*Database, error) {
 	}
 
 	// Build DSN for CockroachDB (PostgreSQL compatible)
-	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		config.Host, config.Port, config.Username, config.Password, config.DatabaseName, config.SSLMode)
+	var dsn string
+	if config.Password != "" {
+		dsn = fmt.Sprintf("postgresql://%s:%s@%s:%d/%s?sslmode=%s",
+			config.Username, config.Password, config.Host, config.Port, config.DatabaseName, config.SSLMode)
+	} else {
+		dsn = fmt.Sprintf("postgresql://%s@%s:%d/%s?sslmode=%s",
+			config.Username, config.Host, config.Port, config.DatabaseName, config.SSLMode)
+	}
 
 	// Configure GORM logger
 	gormLogger := logger.New(
