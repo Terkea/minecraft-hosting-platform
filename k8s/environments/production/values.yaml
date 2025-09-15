@@ -1,0 +1,393 @@
+# Production Environment Values for Minecraft Hosting Platform
+# This file contains production-specific configuration values
+
+global:
+  environment: production
+  domain: minecraft-platform.com
+  tlsEnabled: true
+  monitoring: true
+
+# API Server Configuration
+apiServer:
+  replicaCount: 3
+  image:
+    repository: minecraft-platform/api-server
+    tag: "stable"
+    pullPolicy: Always
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 20
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+  service:
+    type: ClusterIP
+    port: 8080
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+
+  ingress:
+    enabled: true
+    className: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: "letsencrypt-prod"
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+      nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+      nginx.ingress.kubernetes.io/rate-limit: "1000"
+    hosts:
+      - host: api.minecraft-platform.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: api-tls-secret
+        hosts:
+          - api.minecraft-platform.com
+
+# Frontend Configuration
+frontend:
+  replicaCount: 2
+  image:
+    repository: minecraft-platform/frontend
+    tag: "stable"
+    pullPolicy: Always
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+
+  service:
+    type: ClusterIP
+    port: 80
+
+  ingress:
+    enabled: true
+    className: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: "letsencrypt-prod"
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+      nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    hosts:
+      - host: app.minecraft-platform.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: app-tls-secret
+        hosts:
+          - app.minecraft-platform.com
+
+# Kubernetes Operator Configuration
+operator:
+  replicaCount: 2
+  image:
+    repository: minecraft-platform/operator
+    tag: "stable"
+    pullPolicy: Always
+
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+
+  webhook:
+    enabled: true
+    certManager: true
+
+# Database Configuration (CockroachDB)
+database:
+  external: true  # Use managed database service in production
+  host: "cockroachdb-prod.cluster-xyz.amazonaws.com"
+  port: 26257
+  database: "minecraft_platform"
+  sslMode: "require"
+
+  # Connection pooling
+  maxOpenConnections: 100
+  maxIdleConnections: 25
+  connectionMaxLifetime: "1h"
+
+  # Credentials stored in external secret
+  existingSecret: "database-credentials"
+  userKey: "username"
+  passwordKey: "password"
+
+# Redis Configuration (for caching and sessions)
+redis:
+  external: true  # Use managed Redis service in production
+  host: "redis-prod.cluster-xyz.amazonaws.com"
+  port: 6379
+  existingSecret: "redis-credentials"
+  passwordKey: "password"
+
+# NATS Configuration (for messaging)
+nats:
+  external: false  # Deploy NATS in cluster for low latency
+  replicaCount: 3
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClass: "gp3"
+
+  auth:
+    enabled: true
+    existingSecret: "nats-auth"
+
+# Storage Configuration
+storage:
+  # For Minecraft server persistent volumes
+  minecraftServers:
+    storageClass: "gp3"
+    defaultSize: "20Gi"
+    reclaimPolicy: "Retain"
+
+  # For backups
+  backups:
+    storageClass: "gp3"
+    defaultSize: "100Gi"
+    reclaimPolicy: "Retain"
+
+  # Backup to S3
+  s3Backup:
+    enabled: true
+    bucket: "minecraft-platform-backups-prod"
+    region: "us-west-2"
+    existingSecret: "s3-backup-credentials"
+
+# Security Configuration
+security:
+  networkPolicies:
+    enabled: true
+    denyAll: true  # Default deny, explicit allow rules
+
+  podSecurityStandards:
+    enabled: true
+    level: "restricted"
+
+  seccompProfile:
+    enabled: true
+    type: "RuntimeDefault"
+
+  runAsNonRoot: true
+  fsGroup: 65534
+
+  serviceAccount:
+    create: true
+    automountToken: false
+    annotations:
+      eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/minecraft-platform-prod"
+
+# Resource Quotas
+resourceQuota:
+  enabled: true
+  hard:
+    requests.cpu: "50"
+    requests.memory: "100Gi"
+    limits.cpu: "100"
+    limits.memory: "200Gi"
+    persistentvolumeclaims: "500"
+    pods: "1000"
+
+# Monitoring Configuration
+monitoring:
+  enabled: true
+
+  prometheus:
+    enabled: true
+    retention: "30d"
+    storage:
+      size: "100Gi"
+      storageClass: "gp3"
+
+    alertmanager:
+      enabled: true
+      storage:
+        size: "10Gi"
+        storageClass: "gp3"
+
+      config:
+        global:
+          smtp_smarthost: 'smtp.amazonaws.com:587'
+          smtp_from: 'alerts@minecraft-platform.com'
+
+        route:
+          group_by: ['alertname', 'severity']
+          group_wait: 10s
+          group_interval: 10s
+          repeat_interval: 1h
+          receiver: 'web.hook'
+
+        receivers:
+          - name: 'web.hook'
+            slack_configs:
+              - api_url: 'YOUR_SLACK_WEBHOOK_URL'
+                channel: '#alerts-prod'
+                title: 'Minecraft Platform Production Alert'
+
+  grafana:
+    enabled: true
+    adminPassword: ""  # Generated automatically and stored in secret
+    persistence:
+      enabled: true
+      size: "10Gi"
+      storageClass: "gp3"
+
+    ingress:
+      enabled: true
+      hosts:
+        - monitoring.minecraft-platform.com
+      tls:
+        - secretName: monitoring-tls-secret
+          hosts:
+            - monitoring.minecraft-platform.com
+
+# Logging Configuration
+logging:
+  enabled: true
+
+  elasticsearch:
+    enabled: true
+    replicas: 3
+    storage:
+      size: "500Gi"
+      storageClass: "gp3"
+    resources:
+      requests:
+        cpu: 1000m
+        memory: 4Gi
+      limits:
+        cpu: 2000m
+        memory: 8Gi
+
+  kibana:
+    enabled: true
+    ingress:
+      enabled: true
+      hosts:
+        - logs.minecraft-platform.com
+      tls:
+        - secretName: logs-tls-secret
+          hosts:
+            - logs.minecraft-platform.com
+
+  fluentd:
+    enabled: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 200Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+
+# Backup Configuration
+backup:
+  enabled: true
+
+  # Velero for cluster backups
+  velero:
+    enabled: true
+    configuration:
+      provider: aws
+      backupStorageLocation:
+        bucket: minecraft-platform-cluster-backups-prod
+        config:
+          region: us-west-2
+
+    schedules:
+      daily-backup:
+        schedule: "0 2 * * *"
+        template:
+          ttl: "720h"  # 30 days
+
+      weekly-backup:
+        schedule: "0 2 * * 0"
+        template:
+          ttl: "2160h"  # 90 days
+
+# Secrets Management
+secrets:
+  external: true
+  provider: "aws"  # Use AWS Secrets Manager
+
+  secretStore:
+    name: "aws-secrets-manager"
+    kind: "SecretStore"
+    spec:
+      provider:
+        aws:
+          service: "SecretsManager"
+          region: "us-west-2"
+          auth:
+            jwt:
+              serviceAccountRef:
+                name: "external-secrets"
+
+# Performance Configuration
+performance:
+  # CPU and memory limits based on production load testing
+  jvm:
+    heapSize: "2g"
+    gcThreads: 4
+    gcAlgorithm: "G1GC"
+
+  # Connection limits
+  maxConcurrentConnections: 10000
+  connectionTimeout: "30s"
+  readTimeout: "60s"
+  writeTimeout: "60s"
+
+  # Rate limiting
+  rateLimiting:
+    enabled: true
+    requestsPerSecond: 1000
+    burstSize: 2000
+
+# Disaster Recovery
+disasterRecovery:
+  enabled: true
+
+  # Multi-region configuration
+  regions:
+    primary: "us-west-2"
+    secondary: "us-east-1"
+
+  # Database replication
+  databaseReplication:
+    enabled: true
+    replicationLag: "5s"
+
+  # RTO/RPO targets
+  rto: "15m"  # Recovery Time Objective
+  rpo: "5m"   # Recovery Point Objective

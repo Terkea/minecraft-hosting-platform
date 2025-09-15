@@ -1,0 +1,391 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: logging
+  labels:
+    name: logging
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: elasticsearch-config
+  namespace: logging
+data:
+  elasticsearch.yml: |
+    cluster.name: minecraft-platform-logs
+    node.name: ${HOSTNAME}
+    node.data: true
+    node.master: true
+    node.ingest: true
+
+    network.host: 0.0.0.0
+    http.port: 9200
+    transport.tcp.port: 9300
+
+    discovery.seed_hosts: ["elasticsearch-0.elasticsearch", "elasticsearch-1.elasticsearch", "elasticsearch-2.elasticsearch"]
+    cluster.initial_master_nodes: ["elasticsearch-0", "elasticsearch-1", "elasticsearch-2"]
+
+    bootstrap.memory_lock: false
+
+    # Security settings
+    xpack.security.enabled: true
+    xpack.security.transport.ssl.enabled: true
+    xpack.security.transport.ssl.verification_mode: certificate
+    xpack.security.transport.ssl.keystore.path: certs/elastic-stack-ca.p12
+    xpack.security.transport.ssl.truststore.path: certs/elastic-stack-ca.p12
+    xpack.security.http.ssl.enabled: true
+    xpack.security.http.ssl.keystore.path: certs/elastic-stack-ca.p12
+
+    # Performance settings
+    indices.memory.index_buffer_size: 20%
+    indices.fielddata.cache.size: 40%
+    indices.queries.cache.size: 10%
+
+    # Log retention
+    indices.lifecycle.policy.minecraft_logs:
+      policy:
+        phases:
+          hot:
+            actions:
+              rollover:
+                max_size: 50gb
+                max_age: 7d
+          warm:
+            min_age: 7d
+            actions:
+              allocate:
+                number_of_replicas: 0
+          cold:
+            min_age: 30d
+          delete:
+            min_age: 90d
+
+  jvm.options: |
+    # Xms represents the initial size of total heap space
+    # Xmx represents the maximum size of total heap space
+    -Xms2g
+    -Xmx2g
+
+    # Enable G1GC for better performance
+    -XX:+UseG1GC
+    -XX:G1HeapRegionSize=16m
+    -XX:+UnlockExperimentalVMOptions
+    -XX:+UseCGroupMemoryLimitForHeap
+
+    # Garbage collection logging
+    -Xlog:gc*,gc+age=trace,safepoint:gc.log:utctime,pid,tid,level
+    -Xlog:gc+heap=info
+
+    # Performance monitoring
+    -XX:+FlightRecorder
+    -XX:+UnlockCommercialFeatures
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: elasticsearch
+  namespace: logging
+  labels:
+    app: elasticsearch
+spec:
+  serviceName: elasticsearch
+  replicas: 3
+  selector:
+    matchLabels:
+      app: elasticsearch
+  template:
+    metadata:
+      labels:
+        app: elasticsearch
+    spec:
+      initContainers:
+      - name: increase-vm-max-map
+        image: busybox:1.35
+        command: ["sysctl", "-w", "vm.max_map_count=262144"]
+        securityContext:
+          privileged: true
+      - name: increase-fd-ulimit
+        image: busybox:1.35
+        command: ["sh", "-c", "ulimit -n 65536"]
+        securityContext:
+          privileged: true
+      securityContext:
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+      - name: elasticsearch
+        image: docker.elastic.co/elasticsearch/elasticsearch:7.17.13
+        resources:
+          requests:
+            cpu: 1000m
+            memory: 4Gi
+          limits:
+            cpu: 2000m
+            memory: 8Gi
+        ports:
+        - containerPort: 9200
+          name: rest
+          protocol: TCP
+        - containerPort: 9300
+          name: inter-node
+          protocol: TCP
+        volumeMounts:
+        - name: elasticsearch-data
+          mountPath: /usr/share/elasticsearch/data
+        - name: elasticsearch-config
+          mountPath: /usr/share/elasticsearch/config/elasticsearch.yml
+          subPath: elasticsearch.yml
+        - name: elasticsearch-config
+          mountPath: /usr/share/elasticsearch/config/jvm.options
+          subPath: jvm.options
+        env:
+        - name: cluster.name
+          value: minecraft-platform-logs
+        - name: node.name
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: ES_JAVA_OPTS
+          value: "-Xms2g -Xmx2g"
+        - name: ELASTIC_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: elasticsearch-credentials
+              key: password
+        readinessProbe:
+          httpGet:
+            scheme: HTTPS
+            path: /_cluster/health?local=true
+            port: 9200
+          initialDelaySeconds: 60
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            scheme: HTTPS
+            path: /_cluster/health?local=true
+            port: 9200
+          initialDelaySeconds: 120
+          periodSeconds: 30
+      volumes:
+      - name: elasticsearch-config
+        configMap:
+          name: elasticsearch-config
+  volumeClaimTemplates:
+  - metadata:
+      name: elasticsearch-data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      storageClassName: gp3
+      resources:
+        requests:
+          storage: 500Gi
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: elasticsearch-credentials
+  namespace: logging
+type: Opaque
+data:
+  username: ZWxhc3RpYw==  # elastic
+  password: Y2hhbmdlbWU=  # changeme (change in production)
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticsearch
+  namespace: logging
+  labels:
+    app: elasticsearch
+spec:
+  selector:
+    app: elasticsearch
+  clusterIP: None
+  ports:
+  - port: 9200
+    name: rest
+  - port: 9300
+    name: inter-node
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticsearch-client
+  namespace: logging
+  labels:
+    app: elasticsearch
+spec:
+  selector:
+    app: elasticsearch
+  ports:
+  - port: 9200
+    name: rest
+    targetPort: 9200
+
+---
+# Index templates for structured logging
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: elasticsearch-index-templates
+  namespace: logging
+data:
+  minecraft-platform-logs.json: |
+    {
+      "index_patterns": ["minecraft-platform-*"],
+      "template": {
+        "settings": {
+          "number_of_shards": 3,
+          "number_of_replicas": 1,
+          "index.lifecycle.name": "minecraft_logs",
+          "index.lifecycle.rollover_alias": "minecraft-platform-logs"
+        },
+        "mappings": {
+          "properties": {
+            "@timestamp": {
+              "type": "date"
+            },
+            "timestamp": {
+              "type": "date"
+            },
+            "level": {
+              "type": "keyword"
+            },
+            "message": {
+              "type": "text",
+              "analyzer": "standard"
+            },
+            "component": {
+              "type": "keyword"
+            },
+            "correlation_id": {
+              "type": "keyword"
+            },
+            "tenant_id": {
+              "type": "keyword"
+            },
+            "user_id": {
+              "type": "keyword"
+            },
+            "trace_id": {
+              "type": "keyword"
+            },
+            "span_id": {
+              "type": "keyword"
+            },
+            "file": {
+              "type": "keyword"
+            },
+            "function": {
+              "type": "keyword"
+            },
+            "line": {
+              "type": "integer"
+            },
+            "error": {
+              "type": "text"
+            },
+            "method": {
+              "type": "keyword"
+            },
+            "path": {
+              "type": "keyword"
+            },
+            "status_code": {
+              "type": "integer"
+            },
+            "latency": {
+              "type": "long"
+            },
+            "client_ip": {
+              "type": "ip"
+            },
+            "user_agent": {
+              "type": "text"
+            },
+            "kubernetes": {
+              "properties": {
+                "namespace": {
+                  "type": "keyword"
+                },
+                "pod_name": {
+                  "type": "keyword"
+                },
+                "container_name": {
+                  "type": "keyword"
+                },
+                "node_name": {
+                  "type": "keyword"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+  audit-logs.json: |
+    {
+      "index_patterns": ["audit-*"],
+      "template": {
+        "settings": {
+          "number_of_shards": 3,
+          "number_of_replicas": 2,
+          "index.lifecycle.name": "audit_logs"
+        },
+        "mappings": {
+          "properties": {
+            "@timestamp": {
+              "type": "date"
+            },
+            "action": {
+              "type": "keyword"
+            },
+            "resource": {
+              "type": "keyword"
+            },
+            "resource_id": {
+              "type": "keyword"
+            },
+            "result": {
+              "type": "keyword"
+            },
+            "tenant_id": {
+              "type": "keyword"
+            },
+            "user_id": {
+              "type": "keyword"
+            },
+            "correlation_id": {
+              "type": "keyword"
+            },
+            "ip_address": {
+              "type": "ip"
+            },
+            "user_agent": {
+              "type": "text"
+            },
+            "duration": {
+              "type": "long"
+            },
+            "request_body": {
+              "type": "text",
+              "index": false
+            },
+            "response_code": {
+              "type": "integer"
+            },
+            "changes": {
+              "type": "object",
+              "enabled": false
+            }
+          }
+        }
+      }
+    }
