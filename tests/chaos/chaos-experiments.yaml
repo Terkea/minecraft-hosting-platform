@@ -1,0 +1,326 @@
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosEngine
+metadata:
+  name: minecraft-platform-chaos
+  namespace: minecraft-platform
+spec:
+  engineState: 'active'
+  appinfo:
+    appns: 'minecraft-platform'
+    applabel: 'app=api-server'
+  chaosServiceAccount: litmus-admin
+  experiments:
+  - name: pod-delete
+    spec:
+      components:
+        env:
+        - name: TOTAL_CHAOS_DURATION
+          value: '30'
+        - name: CHAOS_INTERVAL
+          value: '10'
+        - name: FORCE
+          value: 'false'
+
+---
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosEngine
+metadata:
+  name: network-chaos
+  namespace: minecraft-platform
+spec:
+  engineState: 'active'
+  appinfo:
+    appns: 'minecraft-platform'
+    applabel: 'app=minecraft-operator'
+  chaosServiceAccount: litmus-admin
+  experiments:
+  - name: network-latency
+    spec:
+      components:
+        env:
+        - name: TOTAL_CHAOS_DURATION
+          value: '60'
+        - name: NETWORK_LATENCY
+          value: '2000'
+        - name: JITTER
+          value: '0'
+
+---
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosEngine
+metadata:
+  name: resource-chaos
+  namespace: minecraft-platform
+spec:
+  engineState: 'active'
+  appinfo:
+    appns: 'minecraft-platform'
+    applabel: 'app=frontend'
+  chaosServiceAccount: litmus-admin
+  experiments:
+  - name: container-kill
+    spec:
+      components:
+        env:
+        - name: TOTAL_CHAOS_DURATION
+          value: '20'
+        - name: CHAOS_INTERVAL
+          value: '5'
+        - name: CONTAINER_RUNTIME
+          value: 'containerd'
+
+---
+# Database chaos experiments
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: database-chaos-scripts
+  namespace: minecraft-platform
+data:
+  db-connection-chaos.sh: |
+    #!/bin/bash
+    # Simulate database connection issues
+
+    echo "Starting database connection chaos experiment..."
+
+    # Get database pod
+    DB_POD=$(kubectl get pods -n minecraft-platform -l app=cockroachdb -o jsonpath='{.items[0].metadata.name}')
+
+    # Simulate connection limit exhaustion
+    for i in {1..100}; do
+      kubectl exec -n minecraft-platform $DB_POD -- cockroach sql --insecure --execute="SELECT 1;" &
+    done
+
+    echo "Connection chaos active for 2 minutes..."
+    sleep 120
+
+    # Kill background processes
+    jobs -p | xargs kill
+
+    echo "Database connection chaos experiment completed"
+
+  db-slow-query-chaos.sh: |
+    #!/bin/bash
+    # Simulate slow database queries
+
+    echo "Starting slow query chaos experiment..."
+
+    DB_POD=$(kubectl get pods -n minecraft-platform -l app=cockroachdb -o jsonpath='{.items[0].metadata.name}')
+
+    # Execute slow queries
+    for i in {1..10}; do
+      kubectl exec -n minecraft-platform $DB_POD -- cockroach sql --insecure --execute="SELECT pg_sleep(5);" &
+    done
+
+    echo "Slow query chaos active for 1 minute..."
+    sleep 60
+
+    echo "Slow query chaos experiment completed"
+
+---
+# Custom chaos experiments for Minecraft platform
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minecraft-server-chaos
+  namespace: minecraft-platform
+spec:
+  template:
+    spec:
+      serviceAccountName: chaos-engineer
+      containers:
+      - name: minecraft-chaos
+        image: minecraft-platform/chaos-toolkit:latest
+        command:
+        - /bin/bash
+        - -c
+        - |
+          # Minecraft Server Chaos Experiment
+
+          echo "Starting Minecraft server chaos experiments..."
+
+          # 1. Simulate server overload
+          echo "Test 1: Server overload simulation"
+          for i in {1..50}; do
+            kubectl exec -n minecraft-platform deployment/minecraft-operator -- \
+              curl -X POST localhost:8080/api/v1/servers \
+              -H 'Content-Type: application/json' \
+              -d '{"name":"chaos-server-'$i'","players":20,"memory":"4Gi"}' &
+          done
+
+          sleep 30
+
+          # 2. Network partition between regions
+          echo "Test 2: Network partition simulation"
+          kubectl patch networkpolicy cross-region-policy -n minecraft-platform \
+            -p '{"spec":{"ingress":[]}}'
+
+          sleep 60
+
+          # Restore network policy
+          kubectl patch networkpolicy cross-region-policy -n minecraft-platform \
+            -p '{"spec":{"ingress":[{"from":[{"namespaceSelector":{}}]}]}}'
+
+          # 3. Resource starvation
+          echo "Test 3: Resource starvation"
+          kubectl patch deployment api-server -n minecraft-platform \
+            -p '{"spec":{"template":{"spec":{"containers":[{"name":"api-server","resources":{"limits":{"memory":"100Mi"}}}]}}}}'
+
+          sleep 120
+
+          # Restore resources
+          kubectl patch deployment api-server -n minecraft-platform \
+            -p '{"spec":{"template":{"spec":{"containers":[{"name":"api-server","resources":{"limits":{"memory":"4Gi"}}}]}}}}'
+
+          echo "Minecraft server chaos experiments completed"
+        env:
+        - name: CHAOS_DURATION
+          value: "300"
+        - name: RECOVERY_TIMEOUT
+          value: "180"
+      restartPolicy: OnFailure
+
+---
+# Chaos engineering schedule
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: weekly-chaos-testing
+  namespace: minecraft-platform
+spec:
+  schedule: "0 2 * * 6"  # Weekly on Saturday at 2 AM
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: chaos-engineer
+          containers:
+          - name: chaos-runner
+            image: litmuschaos/litmus-checker:latest
+            command:
+            - /bin/bash
+            - -c
+            - |
+              # Weekly chaos engineering tests
+
+              echo "Starting weekly chaos engineering tests..."
+
+              # Test 1: Pod deletion chaos
+              kubectl apply -f - << EOF
+              apiVersion: litmuschaos.io/v1alpha1
+              kind: ChaosEngine
+              metadata:
+                name: weekly-pod-chaos
+                namespace: minecraft-platform
+              spec:
+                engineState: 'active'
+                appinfo:
+                  appns: 'minecraft-platform'
+                  applabel: 'app=api-server'
+                chaosServiceAccount: litmus-admin
+                experiments:
+                - name: pod-delete
+                  spec:
+                    components:
+                      env:
+                      - name: TOTAL_CHAOS_DURATION
+                        value: '60'
+              EOF
+
+              # Wait for chaos to complete
+              sleep 120
+
+              # Test 2: Network latency chaos
+              kubectl apply -f - << EOF
+              apiVersion: litmuschaos.io/v1alpha1
+              kind: ChaosEngine
+              metadata:
+                name: weekly-network-chaos
+                namespace: minecraft-platform
+              spec:
+                engineState: 'active'
+                appinfo:
+                  appns: 'minecraft-platform'
+                  applabel: 'app=minecraft-operator'
+                chaosServiceAccount: litmus-admin
+                experiments:
+                - name: network-latency
+                  spec:
+                    components:
+                      env:
+                      - name: TOTAL_CHAOS_DURATION
+                        value: '90'
+                      - name: NETWORK_LATENCY
+                        value: '1000'
+              EOF
+
+              sleep 150
+
+              # Cleanup
+              kubectl delete chaosengine weekly-pod-chaos weekly-network-chaos -n minecraft-platform
+
+              # Generate report
+              cat > /tmp/chaos-report.json << EOF
+              {
+                "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+                "tests_run": 2,
+                "duration_minutes": 5,
+                "services_tested": ["api-server", "minecraft-operator"],
+                "status": "completed",
+                "next_scheduled": "$(date -d '+7 days' -u +%Y-%m-%dT%H:%M:%SZ)"
+              }
+              EOF
+
+              # Send report to monitoring
+              curl -X POST "$CHAOS_WEBHOOK_URL" \
+                -H 'Content-Type: application/json' \
+                -d @/tmp/chaos-report.json
+
+              echo "Weekly chaos engineering tests completed"
+            env:
+            - name: CHAOS_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: notification-secrets
+                  key: chaos-webhook
+          restartPolicy: OnFailure
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: chaos-engineer
+  namespace: minecraft-platform
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: chaos-engineer
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services", "endpoints", "configmaps"]
+  verbs: ["get", "list", "create", "delete", "patch", "update"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets", "daemonsets", "statefulsets"]
+  verbs: ["get", "list", "patch", "update"]
+- apiGroups: ["litmuschaos.io"]
+  resources: ["chaosengines", "chaosexperiments", "chaosresults"]
+  verbs: ["get", "list", "create", "delete", "update", "patch"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["networkpolicies"]
+  verbs: ["get", "list", "patch", "update"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: chaos-engineer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: chaos-engineer
+subjects:
+- kind: ServiceAccount
+  name: chaos-engineer
+  namespace: minecraft-platform
