@@ -1,0 +1,474 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rto-rpo-config
+  namespace: minecraft-platform
+data:
+  # Recovery Time Objective (RTO) and Recovery Point Objective (RPO) requirements
+  requirements.yaml: |
+    disaster_recovery_objectives:
+      # Maximum acceptable downtime
+      rto_requirements:
+        critical_services:
+          api_server: "15 minutes"      # API must be restored within 15 minutes
+          database: "30 minutes"       # Database must be restored within 30 minutes
+          user_interface: "20 minutes" # Frontend must be accessible within 20 minutes
+
+        non_critical_services:
+          monitoring: "60 minutes"     # Monitoring can take up to 1 hour
+          logging: "120 minutes"       # Logging can take up to 2 hours
+          backup_services: "240 minutes" # Backup services can take up to 4 hours
+
+      # Maximum acceptable data loss
+      rpo_requirements:
+        user_data: "1 hour"           # Max 1 hour of user data loss
+        game_progress: "30 minutes"   # Max 30 minutes of game progress loss
+        configuration: "4 hours"      # Max 4 hours of configuration changes loss
+        audit_logs: "15 minutes"      # Max 15 minutes of audit log loss
+
+      # Service level agreements
+      sla_requirements:
+        availability: "99.9%"         # 99.9% uptime (8.77 hours downtime per year)
+        data_durability: "99.999999%" # 11 nines data durability
+        recovery_success_rate: "99.5%" # 99.5% successful recovery rate
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: rto-rpo-validator
+  namespace: minecraft-platform
+  labels:
+    app: rto-rpo-validator
+spec:
+  schedule: "0 */4 * * *"  # Every 4 hours
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: rto-rpo-validator
+        spec:
+          serviceAccountName: rto-rpo-validator
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+          containers:
+          - name: validator
+            image: minecraft-platform/rto-rpo-validator:latest
+            command:
+            - /bin/sh
+            - -c
+            - |
+              # RTO/RPO Validation Script
+              VALIDATION_TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+              REPORT_FILE="/tmp/rto-rpo-validation-${VALIDATION_TIMESTAMP}.json"
+
+              echo "Starting RTO/RPO validation: $VALIDATION_TIMESTAMP"
+
+              # Initialize report structure
+              cat > "$REPORT_FILE" << 'EOF'
+              {
+                "validation_timestamp": "'$VALIDATION_TIMESTAMP'",
+                "rto_validation": {},
+                "rpo_validation": {},
+                "sla_metrics": {},
+                "recommendations": []
+              }
+              EOF
+
+              # Function to measure RTO for a service
+              measure_service_rto() {
+                local service_name="$1"
+                local namespace="$2"
+                local max_rto_minutes="$3"
+
+                echo "Measuring RTO for service: $service_name"
+
+                # Record start time
+                local start_time=$(date +%s)
+
+                # Scale down service (simulate failure)
+                kubectl scale deployment "$service_name" --replicas=0 -n "$namespace"
+
+                # Wait a moment for shutdown
+                sleep 10
+
+                # Scale up service (simulate recovery)
+                kubectl scale deployment "$service_name" --replicas=3 -n "$namespace"
+
+                # Wait for service to be ready
+                kubectl wait --for=condition=Available deployment/"$service_name" -n "$namespace" --timeout=1800s
+
+                # Calculate recovery time
+                local end_time=$(date +%s)
+                local recovery_time_seconds=$((end_time - start_time))
+                local recovery_time_minutes=$((recovery_time_seconds / 60))
+
+                # Update report
+                jq --arg service "$service_name" \
+                   --argjson actual_minutes "$recovery_time_minutes" \
+                   --argjson target_minutes "$max_rto_minutes" \
+                   --argjson met_requirement "$([ $recovery_time_minutes -le $max_rto_minutes ] && echo true || echo false)" \
+                   '.rto_validation[$service] = {
+                     "actual_minutes": $actual_minutes,
+                     "target_minutes": $target_minutes,
+                     "met_requirement": $met_requirement,
+                     "recovery_time_seconds": ('$recovery_time_seconds')
+                   }' "$REPORT_FILE" > "$REPORT_FILE.tmp" && mv "$REPORT_FILE.tmp" "$REPORT_FILE"
+
+                echo "Service $service_name RTO: ${recovery_time_minutes} minutes (target: ${max_rto_minutes} minutes)"
+              }
+
+              # Function to validate RPO by checking backup freshness
+              validate_rpo() {
+                local backup_type="$1"
+                local max_rpo_minutes="$2"
+
+                echo "Validating RPO for: $backup_type"
+
+                case "$backup_type" in
+                  "database")
+                    # Check latest database backup
+                    latest_backup=$(aws s3 ls s3://minecraft-platform-backups-primary/database/ \
+                      --recursive | sort | tail -n 1 | awk '{print $1, $2}')
+                    ;;
+                  "volumes")
+                    # Check latest volume snapshots
+                    latest_backup=$(kubectl get volumesnapshots -n minecraft-platform \
+                      --sort-by=.metadata.creationTimestamp -o json | \
+                      jq -r '.items[-1].metadata.creationTimestamp')
+                    ;;
+                esac
+
+                if [ -n "$latest_backup" ]; then
+                  # Calculate backup age
+                  backup_timestamp=$(date -d "$latest_backup" +%s)
+                  current_timestamp=$(date +%s)
+                  backup_age_seconds=$((current_timestamp - backup_timestamp))
+                  backup_age_minutes=$((backup_age_seconds / 60))
+
+                  # Update report
+                  jq --arg type "$backup_type" \
+                     --argjson actual_minutes "$backup_age_minutes" \
+                     --argjson target_minutes "$max_rpo_minutes" \
+                     --argjson met_requirement "$([ $backup_age_minutes -le $max_rpo_minutes ] && echo true || echo false)" \
+                     '.rpo_validation[$type] = {
+                       "actual_minutes": $actual_minutes,
+                       "target_minutes": $target_minutes,
+                       "met_requirement": $met_requirement,
+                       "last_backup": "'$latest_backup'"
+                     }' "$REPORT_FILE" > "$REPORT_FILE.tmp" && mv "$REPORT_FILE.tmp" "$REPORT_FILE"
+
+                  echo "Backup type $backup_type RPO: ${backup_age_minutes} minutes old (target: ${max_rpo_minutes} minutes)"
+                fi
+              }
+
+              # Function to calculate SLA metrics
+              calculate_sla_metrics() {
+                echo "Calculating SLA metrics..."
+
+                # Get uptime data from monitoring
+                uptime_percentage=$(curl -s "http://prometheus.monitoring.svc.cluster.local:9090/api/v1/query?query=up{job=\"api-server\"}" | \
+                  jq -r '.data.result[0].value[1]' | awk '{printf "%.3f", $1 * 100}')
+
+                # Get error rate from logs
+                error_rate=$(curl -s "http://prometheus.monitoring.svc.cluster.local:9090/api/v1/query?query=rate(http_requests_total{status=~\"5..\"}[24h])" | \
+                  jq -r '.data.result[0].value[1]' | awk '{printf "%.6f", $1 * 100}')
+
+                # Update report
+                jq --argjson uptime "$uptime_percentage" \
+                   --argjson error_rate "$error_rate" \
+                   '.sla_metrics = {
+                     "uptime_percentage": $uptime,
+                     "error_rate_percentage": $error_rate,
+                     "availability_target": 99.9,
+                     "meets_availability_sla": ('$(echo "$uptime_percentage >= 99.9" | bc -l)')
+                   }' "$REPORT_FILE" > "$REPORT_FILE.tmp" && mv "$REPORT_FILE.tmp" "$REPORT_FILE"
+              }
+
+              # Function to generate recommendations
+              generate_recommendations() {
+                echo "Generating recommendations..."
+
+                # Check for RTO violations
+                rto_violations=$(jq -r '.rto_validation | to_entries[] | select(.value.met_requirement == false) | .key' "$REPORT_FILE")
+
+                if [ -n "$rto_violations" ]; then
+                  for service in $rto_violations; do
+                    recommendation="Consider optimizing recovery procedures for $service to meet RTO requirements"
+                    jq --arg rec "$recommendation" \
+                       '.recommendations += [$rec]' "$REPORT_FILE" > "$REPORT_FILE.tmp" && mv "$REPORT_FILE.tmp" "$REPORT_FILE"
+                  done
+                fi
+
+                # Check for RPO violations
+                rpo_violations=$(jq -r '.rpo_validation | to_entries[] | select(.value.met_requirement == false) | .key' "$REPORT_FILE")
+
+                if [ -n "$rpo_violations" ]; then
+                  for backup_type in $rpo_violations; do
+                    recommendation="Increase backup frequency for $backup_type to meet RPO requirements"
+                    jq --arg rec "$recommendation" \
+                       '.recommendations += [$rec]' "$REPORT_FILE" > "$REPORT_FILE.tmp" && mv "$REPORT_FILE.tmp" "$REPORT_FILE"
+                  done
+                fi
+
+                # Check SLA compliance
+                meets_sla=$(jq -r '.sla_metrics.meets_availability_sla' "$REPORT_FILE")
+                if [ "$meets_sla" != "true" ]; then
+                  recommendation="Implement additional redundancy and monitoring to improve availability SLA compliance"
+                  jq --arg rec "$recommendation" \
+                     '.recommendations += [$rec]' "$REPORT_FILE" > "$REPORT_FILE.tmp" && mv "$REPORT_FILE.tmp" "$REPORT_FILE"
+                fi
+              }
+
+              # Execute validation steps
+
+              # 1. Measure RTO for critical services
+              echo "=== RTO Validation ==="
+              measure_service_rto "api-server" "minecraft-platform" 15
+              # Note: Database RTO testing requires more complex setup, skipping in regular validation
+
+              # 2. Validate RPO for backup systems
+              echo "=== RPO Validation ==="
+              validate_rpo "database" 60      # 1 hour RPO for user data
+              validate_rpo "volumes" 240      # 4 hours RPO for configuration
+
+              # 3. Calculate SLA metrics
+              echo "=== SLA Metrics ==="
+              calculate_sla_metrics
+
+              # 4. Generate recommendations
+              echo "=== Recommendations ==="
+              generate_recommendations
+
+              # 5. Upload report to monitoring
+              echo "Uploading validation report..."
+              curl -X POST "http://compliance-collector.monitoring.svc.cluster.local:8080/rto-rpo-validation" \
+                -H 'Content-Type: application/json' \
+                -d @"$REPORT_FILE"
+
+              # 6. Send alerts for violations
+              violations_count=$(jq '[.rto_validation, .rpo_validation] | map(to_entries[] | select(.value.met_requirement == false)) | length' "$REPORT_FILE")
+
+              if [ "$violations_count" -gt 0 ]; then
+                curl -X POST "$ALERT_WEBHOOK_URL" \
+                  -H 'Content-type: application/json' \
+                  --data "{
+                    \"text\": \"⚠️ RTO/RPO Validation Alert: $violations_count requirement violations detected\",
+                    \"attachments\": [{
+                      \"color\": \"warning\",
+                      \"title\": \"Validation Report\",
+                      \"text\": \"$(jq -r '.recommendations | join(\"\n\")' "$REPORT_FILE")\"
+                    }]
+                  }"
+              else
+                curl -X POST "$SUCCESS_WEBHOOK_URL" \
+                  -H 'Content-type: application/json' \
+                  --data "{\"text\": \"✅ RTO/RPO Validation: All requirements met\"}"
+              fi
+
+              echo "RTO/RPO validation completed: $VALIDATION_TIMESTAMP"
+            env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws-credentials
+                  key: access-key-id
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws-credentials
+                  key: secret-access-key
+            - name: ALERT_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: notification-secrets
+                  key: alert-webhook
+            - name: SUCCESS_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: notification-secrets
+                  key: success-webhook
+            volumeMounts:
+            - name: temp-storage
+              mountPath: /tmp
+            resources:
+              requests:
+                cpu: 200m
+                memory: 512Mi
+              limits:
+                cpu: 1000m
+                memory: 1Gi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                - ALL
+              readOnlyRootFilesystem: true
+          volumes:
+          - name: temp-storage
+            emptyDir:
+              sizeLimit: 1Gi
+          restartPolicy: OnFailure
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: rto-rpo-validator
+  namespace: minecraft-platform
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: rto-rpo-validator
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list", "patch", "update"]
+- apiGroups: ["snapshot.storage.k8s.io"]
+  resources: ["volumesnapshots"]
+  verbs: ["get", "list"]
+- apiGroups: ["metrics.k8s.io"]
+  resources: ["nodes", "pods"]
+  verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: rto-rpo-validator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: rto-rpo-validator
+subjects:
+- kind: ServiceAccount
+  name: rto-rpo-validator
+  namespace: minecraft-platform
+
+---
+# Disaster Recovery Dashboard
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dr-dashboard-config
+  namespace: minecraft-platform
+data:
+  dashboard.json: |
+    {
+      "dashboard": {
+        "title": "Disaster Recovery Metrics",
+        "tags": ["disaster-recovery", "rto", "rpo"],
+        "timezone": "UTC",
+        "panels": [
+          {
+            "title": "Recovery Time Objective (RTO) Status",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "rto_validation_met_requirement",
+                "legendFormat": "{{service}}"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "thresholds"
+                },
+                "thresholds": {
+                  "steps": [
+                    {"color": "red", "value": 0},
+                    {"color": "yellow", "value": 0.8},
+                    {"color": "green", "value": 1}
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "title": "Recovery Point Objective (RPO) Status",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "rpo_validation_backup_age_minutes",
+                "legendFormat": "{{backup_type}}"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "minutes",
+                "color": {
+                  "mode": "thresholds"
+                },
+                "thresholds": {
+                  "steps": [
+                    {"color": "green", "value": 0},
+                    {"color": "yellow", "value": 30},
+                    {"color": "red", "value": 60}
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "title": "SLA Availability",
+            "type": "gauge",
+            "targets": [
+              {
+                "expr": "sla_uptime_percentage",
+                "legendFormat": "Uptime %"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "percent",
+                "min": 99,
+                "max": 100,
+                "color": {
+                  "mode": "thresholds"
+                },
+                "thresholds": {
+                  "steps": [
+                    {"color": "red", "value": 99},
+                    {"color": "yellow", "value": 99.5},
+                    {"color": "green", "value": 99.9}
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "title": "Backup Success Rate",
+            "type": "timeseries",
+            "targets": [
+              {
+                "expr": "rate(backup_jobs_total{status=\"success\"}[1h]) / rate(backup_jobs_total[1h])",
+                "legendFormat": "Success Rate"
+              }
+            ]
+          },
+          {
+            "title": "Recent Recovery Tests",
+            "type": "table",
+            "targets": [
+              {
+                "expr": "rto_rpo_validation_results",
+                "format": "table"
+              }
+            ]
+          }
+        ],
+        "time": {
+          "from": "now-24h",
+          "to": "now"
+        },
+        "refresh": "5m"
+      }
+    }
