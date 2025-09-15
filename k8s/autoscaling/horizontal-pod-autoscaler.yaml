@@ -1,0 +1,453 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api-server-hpa
+  namespace: minecraft-platform
+  labels:
+    app: api-server
+    component: autoscaling
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api-server
+  minReplicas: 3
+  maxReplicas: 20
+  metrics:
+  # CPU utilization target
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  # Memory utilization target
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  # Custom metrics for API response time
+  - type: Pods
+    pods:
+      metric:
+        name: http_request_duration_seconds
+        selector:
+          matchLabels:
+            app: api-server
+      target:
+        type: AverageValue
+        averageValue: "200m"  # 200ms average response time
+  # Custom metrics for active connections
+  - type: Pods
+    pods:
+      metric:
+        name: http_active_connections
+        selector:
+          matchLabels:
+            app: api-server
+      target:
+        type: AverageValue
+        averageValue: "50"  # 50 active connections per pod
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60    # Wait 1 minute before scaling up
+      policies:
+      - type: Percent
+        value: 50     # Scale up by 50% of current replicas
+        periodSeconds: 60
+      - type: Pods
+        value: 2      # Or add 2 pods maximum
+        periodSeconds: 60
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 300   # Wait 5 minutes before scaling down
+      policies:
+      - type: Percent
+        value: 25     # Scale down by 25% of current replicas
+        periodSeconds: 180
+      - type: Pods
+        value: 1      # Or remove 1 pod maximum
+        periodSeconds: 180
+      selectPolicy: Min
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: minecraft-operator-hpa
+  namespace: minecraft-platform
+  labels:
+    app: minecraft-operator
+    component: autoscaling
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: minecraft-operator
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 75
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 85
+  # Custom metrics for server management queue size
+  - type: Pods
+    pods:
+      metric:
+        name: server_management_queue_size
+        selector:
+          matchLabels:
+            app: minecraft-operator
+      target:
+        type: AverageValue
+        averageValue: "10"  # 10 queued operations per pod
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+      - type: Pods
+        value: 2
+        periodSeconds: 60
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 600   # 10 minutes cooldown
+      policies:
+      - type: Pods
+        value: 1
+        periodSeconds: 300
+      selectPolicy: Min
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: frontend-hpa
+  namespace: minecraft-platform
+  labels:
+    app: frontend
+    component: autoscaling
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: frontend
+  minReplicas: 2
+  maxReplicas: 15
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 60
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 70
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 45
+      policies:
+      - type: Percent
+        value: 100    # Double the replicas if needed
+        periodSeconds: 60
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 180
+      policies:
+      - type: Percent
+        value: 50     # Scale down by half
+        periodSeconds: 120
+      selectPolicy: Min
+
+---
+# HPA for individual Minecraft server pods (using custom resources)
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: minecraft-servers-hpa
+  namespace: minecraft-platform
+  labels:
+    app: minecraft-servers
+    component: autoscaling
+spec:
+  scaleTargetRef:
+    apiVersion: minecraft.example.com/v1
+    kind: MinecraftServer
+    name: minecraft-server-pool
+  minReplicas: 1
+  maxReplicas: 100  # Support for up to 100 concurrent servers per pool
+  metrics:
+  # Player count across all servers
+  - type: External
+    external:
+      metric:
+        name: minecraft_total_players
+        selector:
+          matchLabels:
+            pool: default
+      target:
+        type: AverageValue
+        averageValue: "15"  # 15 players per server optimal
+  # Server TPS (Ticks Per Second) performance
+  - type: External
+    external:
+      metric:
+        name: minecraft_server_tps
+        selector:
+          matchLabels:
+            pool: default
+      target:
+        type: AverageValue
+        averageValue: "18"  # Minimum 18 TPS per server
+  # Memory usage of Minecraft JVM
+  - type: External
+    external:
+      metric:
+        name: minecraft_jvm_memory_usage_percent
+        selector:
+          matchLabels:
+            pool: default
+      target:
+        type: AverageValue
+        averageValue: "75"  # 75% JVM memory usage
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 120   # Wait 2 minutes before scaling up servers
+      policies:
+      - type: Pods
+        value: 5      # Add up to 5 servers at a time
+        periodSeconds: 120
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 600   # Wait 10 minutes before scaling down
+      policies:
+      - type: Pods
+        value: 2      # Remove max 2 servers at a time
+        periodSeconds: 300
+      selectPolicy: Min
+
+---
+# ServiceMonitor for custom metrics collection
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: minecraft-metrics
+  namespace: minecraft-platform
+  labels:
+    app: minecraft-metrics
+spec:
+  selector:
+    matchLabels:
+      app: api-server
+  endpoints:
+  - port: metrics
+    path: /metrics
+    interval: 30s
+    scrapeTimeout: 10s
+  - port: metrics
+    path: /minecraft-metrics
+    interval: 15s  # More frequent scraping for server metrics
+    scrapeTimeout: 5s
+
+---
+# Custom metrics API configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: custom-metrics-config
+  namespace: minecraft-platform
+data:
+  config.yaml: |
+    # Custom metrics for Minecraft platform autoscaling
+    metricsConfig:
+      # API Server metrics
+      api_server:
+        - name: "http_request_duration_seconds"
+          type: "histogram"
+          help: "HTTP request duration in seconds"
+          labels: ["method", "endpoint", "status"]
+
+        - name: "http_active_connections"
+          type: "gauge"
+          help: "Number of active HTTP connections"
+          labels: ["server"]
+
+        - name: "api_request_rate"
+          type: "counter"
+          help: "Rate of API requests per second"
+          labels: ["endpoint"]
+
+      # Minecraft server metrics
+      minecraft_servers:
+        - name: "minecraft_total_players"
+          type: "gauge"
+          help: "Total number of players across all servers"
+          labels: ["pool", "region"]
+
+        - name: "minecraft_server_tps"
+          type: "gauge"
+          help: "Server ticks per second (TPS)"
+          labels: ["server_id", "pool"]
+
+        - name: "minecraft_jvm_memory_usage_percent"
+          type: "gauge"
+          help: "JVM memory usage percentage"
+          labels: ["server_id", "pool"]
+
+        - name: "minecraft_player_queue_size"
+          type: "gauge"
+          help: "Number of players waiting to join servers"
+          labels: ["pool"]
+
+      # Operator metrics
+      operator:
+        - name: "server_management_queue_size"
+          type: "gauge"
+          help: "Number of pending server management operations"
+          labels: ["operation_type"]
+
+        - name: "server_creation_duration_seconds"
+          type: "histogram"
+          help: "Time taken to create a new server"
+          labels: ["pool", "region"]
+
+    # Autoscaling rules
+    autoscalingRules:
+      # Scale up rules
+      scaleUp:
+        - metric: "minecraft_player_queue_size"
+          threshold: 10
+          action: "create_server"
+          cooldown: "2m"
+
+        - metric: "minecraft_server_tps"
+          threshold: 15  # TPS below 15 indicates server overload
+          action: "scale_out"
+          cooldown: "5m"
+
+        - metric: "api_request_rate"
+          threshold: 1000  # Requests per second
+          action: "scale_api_server"
+          cooldown: "1m"
+
+      # Scale down rules
+      scaleDown:
+        - metric: "minecraft_total_players"
+          threshold: 5   # Less than 5 players per server
+          action: "consolidate_servers"
+          cooldown: "10m"
+
+        - metric: "minecraft_server_tps"
+          threshold: 19.5  # TPS above 19.5 indicates server underutilization
+          action: "scale_in"
+          cooldown: "15m"
+
+---
+# KEDA ScaledObject for advanced autoscaling scenarios
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: minecraft-queue-scaler
+  namespace: minecraft-platform
+spec:
+  scaleTargetRef:
+    name: queue-processor
+  minReplicaCount: 1
+  maxReplicaCount: 50
+  triggers:
+  # Scale based on NATS message queue
+  - type: nats-jetstream
+    metadata:
+      natsServerMonitoringEndpoint: "nats://nats.minecraft-platform.svc.cluster.local:8222"
+      account: "minecraft-platform"
+      stream: "server-management"
+      consumer: "server-operations"
+      lagThreshold: "10"
+  # Scale based on Redis queue length
+  - type: redis
+    metadata:
+      address: "redis.minecraft-platform.svc.cluster.local:6379"
+      listName: "server_creation_queue"
+      listLength: "5"
+  # Scale based on Prometheus metrics
+  - type: prometheus
+    metadata:
+      serverAddress: "http://prometheus.monitoring.svc.cluster.local:9090"
+      metricName: "minecraft_pending_operations"
+      threshold: "20"
+      query: "sum(minecraft_pending_operations{type=\"server_creation\"})"
+
+---
+# Advanced autoscaling with predictive scaling
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: predictive-scaling-config
+  namespace: minecraft-platform
+data:
+  config.yaml: |
+    predictiveScaling:
+      enabled: true
+
+      # Historical data analysis
+      historicalAnalysis:
+        enabled: true
+        lookbackDays: 30
+        seasonalityDetection: true
+
+      # Traffic patterns
+      trafficPatterns:
+        # Peak hours (evening gaming time)
+        - name: "evening_peak"
+          startTime: "17:00"
+          endTime: "23:00"
+          timezone: "UTC"
+          scalingFactor: 1.5
+
+        # Weekend traffic
+        - name: "weekend_peak"
+          days: ["Saturday", "Sunday"]
+          scalingFactor: 2.0
+
+        # Holiday events
+        - name: "holiday_events"
+          events: ["christmas", "summer_vacation"]
+          scalingFactor: 3.0
+
+      # Predictive scaling rules
+      predictionRules:
+        - name: "player_growth_prediction"
+          metric: "minecraft_total_players"
+          predictionHorizon: "30m"
+          confidenceThreshold: 0.8
+
+        - name: "api_load_prediction"
+          metric: "http_request_rate"
+          predictionHorizon: "15m"
+          confidenceThreshold: 0.75
+
+      # Machine learning models
+      mlModels:
+        - name: "player_demand_forecasting"
+          algorithm: "linear_regression"
+          features: ["hour_of_day", "day_of_week", "player_count", "active_servers"]
+          updateInterval: "1h"
+
+        - name: "resource_usage_prediction"
+          algorithm: "time_series_forecasting"
+          features: ["cpu_usage", "memory_usage", "network_io"]
+          updateInterval: "30m"

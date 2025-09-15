@@ -1,0 +1,439 @@
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: api-server-vpa
+  namespace: minecraft-platform
+  labels:
+    app: api-server
+    component: autoscaling
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api-server
+  updatePolicy:
+    updateMode: "Auto"  # Automatically apply recommendations
+  resourcePolicy:
+    containerPolicies:
+    - containerName: api-server
+      minAllowed:
+        cpu: 100m
+        memory: 128Mi
+      maxAllowed:
+        cpu: 4000m
+        memory: 8Gi
+      controlledResources: ["cpu", "memory"]
+      controlledValues: RequestsAndLimits
+
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: minecraft-operator-vpa
+  namespace: minecraft-platform
+  labels:
+    app: minecraft-operator
+    component: autoscaling
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: minecraft-operator
+  updatePolicy:
+    updateMode: "Auto"
+  resourcePolicy:
+    containerPolicies:
+    - containerName: minecraft-operator
+      minAllowed:
+        cpu: 100m
+        memory: 256Mi
+      maxAllowed:
+        cpu: 2000m
+        memory: 4Gi
+      controlledResources: ["cpu", "memory"]
+      controlledValues: RequestsAndLimits
+
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: frontend-vpa
+  namespace: minecraft-platform
+  labels:
+    app: frontend
+    component: autoscaling
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: frontend
+  updatePolicy:
+    updateMode: "Off"  # Only provide recommendations, don't auto-apply
+  resourcePolicy:
+    containerPolicies:
+    - containerName: frontend
+      minAllowed:
+        cpu: 50m
+        memory: 64Mi
+      maxAllowed:
+        cpu: 1000m
+        memory: 2Gi
+      controlledResources: ["cpu", "memory"]
+      controlledValues: RequestsAndLimits
+
+---
+# VPA for individual Minecraft server containers
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: minecraft-server-vpa
+  namespace: minecraft-platform
+  labels:
+    app: minecraft-server
+    component: autoscaling
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: minecraft-server
+  updatePolicy:
+    updateMode: "Initial"  # Only set resources on pod creation
+  resourcePolicy:
+    containerPolicies:
+    - containerName: minecraft-server
+      minAllowed:
+        cpu: 500m      # Minimum for Minecraft server
+        memory: 1Gi    # Minimum JVM heap
+      maxAllowed:
+        cpu: 8000m     # Maximum for single server
+        memory: 16Gi   # Maximum JVM heap
+      controlledResources: ["cpu", "memory"]
+      controlledValues: RequestsAndLimits
+
+---
+# VPA for database instances
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: database-vpa
+  namespace: minecraft-platform
+  labels:
+    app: cockroachdb
+    component: autoscaling
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: cockroachdb
+  updatePolicy:
+    updateMode: "Off"  # Database scaling requires careful planning
+  resourcePolicy:
+    containerPolicies:
+    - containerName: cockroachdb
+      minAllowed:
+        cpu: 1000m
+        memory: 2Gi
+      maxAllowed:
+        cpu: 8000m
+        memory: 32Gi
+      controlledResources: ["cpu", "memory"]
+      controlledValues: RequestsAndLimits
+
+---
+# VPA for monitoring components
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: prometheus-vpa
+  namespace: monitoring
+  labels:
+    app: prometheus
+    component: autoscaling
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: prometheus
+  updatePolicy:
+    updateMode: "Off"  # Monitoring resources should be stable
+  resourcePolicy:
+    containerPolicies:
+    - containerName: prometheus
+      minAllowed:
+        cpu: 500m
+        memory: 2Gi
+      maxAllowed:
+        cpu: 4000m
+        memory: 16Gi
+      controlledResources: ["cpu", "memory"]
+      controlledValues: RequestsAndLimits
+
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: grafana-vpa
+  namespace: monitoring
+  labels:
+    app: grafana
+    component: autoscaling
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: grafana
+  updatePolicy:
+    updateMode: "Auto"
+  resourcePolicy:
+    containerPolicies:
+    - containerName: grafana
+      minAllowed:
+        cpu: 100m
+        memory: 128Mi
+      maxAllowed:
+        cpu: 1000m
+        memory: 2Gi
+      controlledResources: ["cpu", "memory"]
+      controlledValues: RequestsAndLimits
+
+---
+# VPA Configuration for custom resource recommendations
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vpa-recommender-config
+  namespace: minecraft-platform
+data:
+  config.yaml: |
+    # VPA Recommender Configuration
+    recommender:
+      # CPU recommendation settings
+      cpu:
+        targetUtilization: 0.8      # Target 80% CPU utilization
+        lowerBoundCpuPercentile: 5  # Use 5th percentile for lower bound
+        upperBoundCpuPercentile: 95 # Use 95th percentile for upper bound
+        marginFraction: 0.15        # Add 15% margin to recommendations
+
+      # Memory recommendation settings
+      memory:
+        targetUtilization: 0.8      # Target 80% memory utilization
+        lowerBoundMemoryPercentile: 5
+        upperBoundMemoryPercentile: 95
+        marginFraction: 0.15
+
+      # Recommendation calculation parameters
+      calculation:
+        historyLength: "8d"         # Use 8 days of history
+        cpuHistogramBucketSizeGrowth: 0.05
+        memoryHistogramBucketSizeGrowth: 0.05
+        checkpointsGCInterval: "10m"
+        minCheckpoints: 10
+        maxIdleMinutes: 1440        # 24 hours
+
+      # Application-specific tuning
+      applications:
+        minecraft-server:
+          cpu:
+            targetUtilization: 0.7  # Lower target for game servers
+            marginFraction: 0.25    # Higher margin for stability
+          memory:
+            targetUtilization: 0.75
+            marginFraction: 0.2
+
+        api-server:
+          cpu:
+            targetUtilization: 0.8
+            marginFraction: 0.1     # Lower margin for API efficiency
+          memory:
+            targetUtilization: 0.85
+            marginFraction: 0.1
+
+        database:
+          cpu:
+            targetUtilization: 0.6  # Conservative for database
+            marginFraction: 0.3
+          memory:
+            targetUtilization: 0.7
+            marginFraction: 0.3
+
+---
+# Custom Resource Definition for VPA recommendations
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vpa-recommendations
+  namespace: minecraft-platform
+data:
+  recommendations.yaml: |
+    # VPA-based resource recommendations for Minecraft platform
+    resourceRecommendations:
+      # API Server recommendations
+      api-server:
+        current:
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
+          limits:
+            cpu: "2000m"
+            memory: "4Gi"
+        recommended:
+          requests:
+            cpu: "300m"    # Based on 80% of actual usage
+            memory: "800Mi"
+          limits:
+            cpu: "1500m"   # 5x requests with headroom
+            memory: "3Gi"
+        reasoning: "Historical usage shows lower CPU but consistent memory"
+
+      # Minecraft Server recommendations
+      minecraft-server:
+        current:
+          requests:
+            cpu: "1000m"
+            memory: "4Gi"
+          limits:
+            cpu: "4000m"
+            memory: "8Gi"
+        recommended:
+          requests:
+            cpu: "800m"    # Account for JVM efficiency
+            memory: "3Gi"  # JVM heap + overhead
+          limits:
+            cpu: "6000m"   # Allow burst for world generation
+            memory: "12Gi" # JVM + native memory
+        reasoning: "JVM-based application needs burst capacity and memory overhead"
+
+      # Frontend recommendations
+      frontend:
+        current:
+          requests:
+            cpu: "200m"
+            memory: "512Mi"
+          limits:
+            cpu: "1000m"
+            memory: "2Gi"
+        recommended:
+          requests:
+            cpu: "100m"    # Static serving is lightweight
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "1Gi"
+        reasoning: "Static content serving requires minimal resources"
+
+    # Quality of Service guidelines
+    qosGuidelines:
+      guaranteed:
+        - minecraft-server    # Game servers need guaranteed resources
+        - database           # Database requires consistent performance
+
+      burstable:
+        - api-server         # API can burst during peak loads
+        - minecraft-operator # Operator has variable workload
+        - frontend           # Web serving has traffic spikes
+
+      best-effort:
+        - log-collector      # Logging can be delayed
+        - monitoring-tools   # Monitoring is less critical
+
+---
+# Automated VPA recommendation applier
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: vpa-recommendation-applier
+  namespace: minecraft-platform
+spec:
+  schedule: "0 2 * * 0"  # Weekly on Sunday at 2 AM
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: vpa-applier
+          containers:
+          - name: applier
+            image: kubectl:latest
+            command:
+            - /bin/sh
+            - -c
+            - |
+              # Apply VPA recommendations script
+              echo "Applying VPA recommendations..."
+
+              # Get all VPA objects
+              kubectl get vpa -n minecraft-platform -o json > /tmp/vpa-objects.json
+
+              # Process each VPA recommendation
+              cat /tmp/vpa-objects.json | jq -r '.items[] | select(.status.recommendation != null) | .metadata.name' | while read vpa_name; do
+                echo "Processing VPA: $vpa_name"
+
+                # Get the target deployment/statefulset
+                target_ref=$(kubectl get vpa $vpa_name -n minecraft-platform -o jsonpath='{.spec.targetRef.name}')
+                target_kind=$(kubectl get vpa $vpa_name -n minecraft-platform -o jsonpath='{.spec.targetRef.kind}')
+
+                # Get current and recommended resources
+                current_cpu_request=$(kubectl get $target_kind $target_ref -n minecraft-platform -o jsonpath='{.spec.template.spec.containers[0].resources.requests.cpu}')
+                recommended_cpu=$(kubectl get vpa $vpa_name -n minecraft-platform -o jsonpath='{.status.recommendation.containerRecommendations[0].target.cpu}')
+
+                echo "Current CPU request: $current_cpu_request"
+                echo "Recommended CPU: $recommended_cpu"
+
+                # Apply recommendation if difference is significant (>20%)
+                if [ -n "$recommended_cpu" ] && [ -n "$current_cpu_request" ]; then
+                  # Convert to millicores for comparison
+                  current_millicores=$(echo $current_cpu_request | sed 's/m$//' | sed 's/$/000/' | head -c -3)
+                  recommended_millicores=$(echo $recommended_cpu | sed 's/m$//' | sed 's/$/000/' | head -c -3)
+
+                  if [ $(echo "($recommended_millicores - $current_millicores) / $current_millicores > 0.2" | bc -l) ]; then
+                    echo "Applying CPU recommendation: $recommended_cpu"
+                    kubectl patch $target_kind $target_ref -n minecraft-platform -p "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"${target_ref}\",\"resources\":{\"requests\":{\"cpu\":\"${recommended_cpu}\"}}}]}}}}"
+                  fi
+                fi
+              done
+
+              echo "VPA recommendation application completed"
+            resources:
+              requests:
+                cpu: 100m
+                memory: 128Mi
+              limits:
+                cpu: 500m
+                memory: 512Mi
+          restartPolicy: OnFailure
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vpa-applier
+  namespace: minecraft-platform
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: vpa-applier
+rules:
+- apiGroups: ["autoscaling.k8s.io"]
+  resources: ["verticalpodautoscalers"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "statefulsets"]
+  verbs: ["get", "list", "patch", "update"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: vpa-applier
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: vpa-applier
+subjects:
+- kind: ServiceAccount
+  name: vpa-applier
+  namespace: minecraft-platform
