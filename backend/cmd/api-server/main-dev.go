@@ -127,6 +127,14 @@ func main() {
 		server.CurrentPlayers = 0
 		server.KubernetesNamespace = "minecraft-" + server.Name
 
+		// Allocate unique external port (starting from 25565 for Minecraft)
+		var maxPort int64
+		db.DB.Model(&models.ServerInstance{}).Select("COALESCE(MAX(external_port), 25564)").Scan(&maxPort)
+		if maxPort < 25565 {
+			maxPort = 25564 // Ensure next port is at least 25565
+		}
+		server.ExternalPort = int(maxPort + 1)
+
 		// Create server in database
 		result := db.DB.Create(&server)
 		if result.Error != nil {
