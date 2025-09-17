@@ -7,12 +7,20 @@
 	onMount(async () => {
 		try {
 			// Test backend connection
-			const healthResponse = await fetch('http://localhost:8080/health');
+			const healthResponse = await fetch('http://localhost:8080/health', {
+				headers: {
+					'X-Tenant-ID': '00000000-0000-0000-0000-000000000000'
+				}
+			});
 			const health = await healthResponse.json();
 			healthStatus = health.status;
 
-			// Fetch servers
-			const serversResponse = await fetch('http://localhost:8080/api/servers');
+			// Fetch servers with tenant authentication
+			const serversResponse = await fetch('http://localhost:8080/api/servers', {
+				headers: {
+					'X-Tenant-ID': '00000000-0000-0000-0000-000000000000'
+				}
+			});
 			const data = await serversResponse.json();
 			servers = data.servers;
 		} catch (error) {

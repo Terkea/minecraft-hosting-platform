@@ -20,4 +20,4 @@ COPY . .
 EXPOSE 8080
 
 # Default command - use go run for development
-CMD ["go", "run", "cmd/api-server/main-dev.go"]
+CMD ["go", "run", "cmd/api-server/main.go"]
