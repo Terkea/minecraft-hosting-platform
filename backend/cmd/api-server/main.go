@@ -1,10 +1,12 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -21,6 +23,14 @@ var websocketUpgrader = websocket.Upgrader{
 		return true // Allow all origins in development
 	},
 }
+
+type WSConnection struct {
+	conn     *websocket.Conn
+	tenantID string
+}
+
+var wsConnections = make(map[string]*WSConnection)
+var wsConnMutex sync.RWMutex
 
 func main() {
 	// Determine mode from environment
@@ -74,6 +84,14 @@ func setupDevelopmentMode(r *gin.Engine) {
 	}
 
 	log.Println("✅ Database connection established")
+
+	// Run database migrations
+	if err := db.AutoMigrate(); err != nil {
+		log.Fatalf("Failed to run database migrations: %v", err)
+	}
+	log.Println("✅ Database migrations completed")
+
+	log.Println("✅ WebSocket support initialized")
 
 	// Add CORS middleware for development
 	r.Use(func(c *gin.Context) {
@@ -216,6 +234,15 @@ func setupDevelopmentRoutes(r *gin.Engine, db *database.Database) {
 		server.CurrentPlayers = 0
 		server.KubernetesNamespace = "minecraft-" + server.Name
 
+		// Set default resource limits if not provided
+		if server.ResourceLimits.CPUCores == 0 {
+			server.ResourceLimits = models.ResourceLimits{
+				CPUCores:  1.0,
+				MemoryGB:  1,
+				StorageGB: 10,
+			}
+		}
+
 		// Allocate unique external port (starting from 25565 for Minecraft)
 		var maxPort int64
 		db.DB.Model(&models.ServerInstance{}).Select("COALESCE(MAX(external_port), 25564)").Scan(&maxPort)
@@ -308,6 +335,24 @@ func setupDevelopmentRoutes(r *gin.Engine, db *database.Database) {
 				"error": "Failed to update server",
 			})
 			return
+		}
+
+		// Send WebSocket notification for status changes
+		if statusUpdate, exists := updates["status"]; exists {
+			wsConnMutex.RLock()
+			for _, wsConn := range wsConnections {
+				if wsConn.tenantID == server.TenantID.String() {
+					wsConn.conn.WriteJSON(map[string]interface{}{
+						"type":        "server_status_update",
+						"server_id":   server.ID.String(),
+						"server_name": server.Name,
+						"status":      statusUpdate.(string),
+						"message":     "Server status updated",
+						"timestamp":   time.Now(),
+					})
+				}
+			}
+			wsConnMutex.RUnlock()
 		}
 
 		c.JSON(http.StatusOK, gin.H{
@@ -437,35 +482,217 @@ func setupDevelopmentRoutes(r *gin.Engine, db *database.Database) {
 		})
 	})
 
-	// WebSocket endpoint for real-time updates
+	// Simple WebSocket endpoint
 	r.GET("/ws", func(c *gin.Context) {
-		// Basic WebSocket upgrade
+		tenantID := c.GetHeader("X-Tenant-ID")
+		if tenantID == "" {
+			tenantID = c.Query("tenant_id")
+		}
+
 		conn, err := websocketUpgrader.Upgrade(c.Writer, c.Request, nil)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
-				"error": "Failed to upgrade connection to WebSocket",
+				"error": "Failed to upgrade to WebSocket",
 			})
 			return
 		}
-		defer conn.Close()
+
+		// Store connection
+		connID := uuid.New().String()
+		wsConnMutex.Lock()
+		wsConnections[connID] = &WSConnection{
+			conn:     conn,
+			tenantID: tenantID,
+		}
+		wsConnMutex.Unlock()
+
+		log.Printf("WebSocket connected: %s (tenant: %s)", connID, tenantID)
 
 		// Send welcome message
-		conn.WriteJSON(gin.H{
-			"type": "welcome",
-			"message": "Connected to Minecraft Platform WebSocket",
+		conn.WriteJSON(map[string]interface{}{
+			"type":      "welcome",
+			"message":   "Connected to Minecraft Platform",
+			"tenant_id": tenantID,
 			"timestamp": time.Now(),
 		})
 
-		// Keep connection alive with periodic pings
+		// Handle connection close
+		defer func() {
+			wsConnMutex.Lock()
+			delete(wsConnections, connID)
+			wsConnMutex.Unlock()
+			conn.Close()
+			log.Printf("WebSocket disconnected: %s", connID)
+		}()
+
+		// Keep connection alive
 		for {
-			time.Sleep(30 * time.Second)
-			if err := conn.WriteJSON(gin.H{
-				"type": "ping",
-				"timestamp": time.Now(),
-			}); err != nil {
+			_, _, err := conn.ReadMessage()
+			if err != nil {
 				break
 			}
 		}
+	})
+
+	// GET /api/servers/:id/logs - Stream server logs
+	r.GET("/api/servers/:id/logs", func(c *gin.Context) {
+		tenantID := c.GetString("tenant_id")
+		serverID := c.Param("id")
+
+		// TODO: Implement real Kubernetes log streaming
+		// For now, return sample logs
+		c.JSON(http.StatusOK, gin.H{
+			"server_id": serverID,
+			"tenant_id": tenantID,
+			"logs": []gin.H{
+				{
+					"timestamp": time.Now().Add(-time.Minute * 5).Format(time.RFC3339),
+					"level": "INFO",
+					"message": "Starting minecraft server version 1.20.1",
+					"source": "minecraft-server",
+				},
+				{
+					"timestamp": time.Now().Add(-time.Minute * 4).Format(time.RFC3339),
+					"level": "INFO",
+					"message": "Loading properties",
+					"source": "minecraft-server",
+				},
+				{
+					"timestamp": time.Now().Add(-time.Minute * 3).Format(time.RFC3339),
+					"level": "INFO",
+					"message": "Default game type: SURVIVAL",
+					"source": "minecraft-server",
+				},
+				{
+					"timestamp": time.Now().Add(-time.Minute * 2).Format(time.RFC3339),
+					"level": "INFO",
+					"message": "Generating keypair",
+					"source": "minecraft-server",
+				},
+				{
+					"timestamp": time.Now().Add(-time.Minute * 1).Format(time.RFC3339),
+					"level": "INFO",
+					"message": "Done (3.542s)! For help, type \"help\"",
+					"source": "minecraft-server",
+				},
+				{
+					"timestamp": time.Now().Format(time.RFC3339),
+					"level": "INFO",
+					"message": "Server started successfully on port 25565",
+					"source": "minecraft-server",
+				},
+			},
+		})
+	})
+
+	// GET /api/servers/:id/backups - Get list of backups for server
+	r.GET("/api/servers/:id/backups", func(c *gin.Context) {
+		tenantID := c.GetString("tenant_id")
+		serverID := c.Param("id")
+
+		// TODO: Implement real backup listing from Kubernetes persistent volumes
+		// For now, return sample backup data
+		c.JSON(http.StatusOK, gin.H{
+			"server_id": serverID,
+			"tenant_id": tenantID,
+			"backups": []gin.H{
+				{
+					"id": "backup-001",
+					"name": "Manual Backup",
+					"timestamp": time.Now().Add(-time.Hour * 24).Format(time.RFC3339),
+					"size_mb": 145,
+					"type": "manual",
+					"status": "completed",
+					"world_name": "world",
+				},
+				{
+					"id": "backup-002",
+					"name": "Scheduled Backup",
+					"timestamp": time.Now().Add(-time.Hour * 12).Format(time.RFC3339),
+					"size_mb": 162,
+					"type": "scheduled",
+					"status": "completed",
+					"world_name": "world",
+				},
+				{
+					"id": "backup-003",
+					"name": "Pre-update Backup",
+					"timestamp": time.Now().Add(-time.Hour * 2).Format(time.RFC3339),
+					"size_mb": 158,
+					"type": "manual",
+					"status": "completed",
+					"world_name": "world",
+				},
+			},
+		})
+	})
+
+	// POST /api/servers/:id/backups - Create a new backup
+	r.POST("/api/servers/:id/backups", func(c *gin.Context) {
+		tenantID := c.GetString("tenant_id")
+		serverID := c.Param("id")
+
+		var req struct {
+			Name        string `json:"name"`
+			Description string `json:"description"`
+		}
+
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "Invalid request body",
+				"details": err.Error(),
+			})
+			return
+		}
+
+		// TODO: Implement real backup creation via Kubernetes job
+		// For now, return success response
+		backupID := "backup-" + fmt.Sprintf("%d", time.Now().Unix())
+
+		c.JSON(http.StatusCreated, gin.H{
+			"backup_id": backupID,
+			"server_id": serverID,
+			"tenant_id": tenantID,
+			"name": req.Name,
+			"description": req.Description,
+			"status": "in_progress",
+			"created_at": time.Now().Format(time.RFC3339),
+			"estimated_completion": time.Now().Add(time.Minute * 5).Format(time.RFC3339),
+		})
+	})
+
+	// DELETE /api/servers/:id/backups/:backup_id - Delete a backup
+	r.DELETE("/api/servers/:id/backups/:backup_id", func(c *gin.Context) {
+		tenantID := c.GetString("tenant_id")
+		serverID := c.Param("id")
+		backupID := c.Param("backup_id")
+
+		// TODO: Implement real backup deletion
+		// For now, return success response
+		c.JSON(http.StatusOK, gin.H{
+			"message": "Backup deleted successfully",
+			"backup_id": backupID,
+			"server_id": serverID,
+			"tenant_id": tenantID,
+		})
+	})
+
+	// POST /api/servers/:id/backups/:backup_id/restore - Restore from backup
+	r.POST("/api/servers/:id/backups/:backup_id/restore", func(c *gin.Context) {
+		tenantID := c.GetString("tenant_id")
+		serverID := c.Param("id")
+		backupID := c.Param("backup_id")
+
+		// TODO: Implement real backup restoration
+		// For now, return success response
+		c.JSON(http.StatusAccepted, gin.H{
+			"message": "Restore operation started",
+			"backup_id": backupID,
+			"server_id": serverID,
+			"tenant_id": tenantID,
+			"status": "in_progress",
+			"estimated_completion": time.Now().Add(time.Minute * 10).Format(time.RFC3339),
+		})
 	})
 
 	// Metrics endpoint

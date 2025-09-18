@@ -147,6 +147,14 @@ func (c *MinecraftServerController) createMinecraftDeployment(obj map[string]int
 	// Extract spec details
 	version := spec["version"].(string)
 	resources := spec["resources"].(map[string]interface{})
+	serverName := obj["metadata"].(map[string]interface{})["name"].(string)
+
+	// Create PVC first
+	pvcName := fmt.Sprintf("minecraft-%s-data", serverName)
+	err := c.createPersistentVolumeClaim(pvcName, namespace, resources["storage"].(string))
+	if err != nil {
+		log.Printf("⚠️  Failed to create PVC %s: %v", pvcName, err)
+	}
 
 	// Create deployment
 	deployment := &v1.Deployment{
@@ -155,7 +163,7 @@ func (c *MinecraftServerController) createMinecraftDeployment(obj map[string]int
 			Namespace: namespace,
 			Labels: map[string]string{
 				"app":                          "minecraft",
-				"minecraft.platform/server":   obj["metadata"].(map[string]interface{})["name"].(string),
+				"minecraft.platform/server":   serverName,
 				"minecraft.platform/version":  version,
 			},
 		},
@@ -164,14 +172,14 @@ func (c *MinecraftServerController) createMinecraftDeployment(obj map[string]int
 			Selector: &metav1.LabelSelector{
 				MatchLabels: map[string]string{
 					"app": "minecraft",
-					"minecraft.platform/server": obj["metadata"].(map[string]interface{})["name"].(string),
+					"minecraft.platform/server": serverName,
 				},
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: map[string]string{
 						"app": "minecraft",
-						"minecraft.platform/server": obj["metadata"].(map[string]interface{})["name"].(string),
+						"minecraft.platform/server": serverName,
 					},
 				},
 				Spec: corev1.PodSpec{
@@ -207,6 +215,22 @@ func (c *MinecraftServerController) createMinecraftDeployment(obj map[string]int
 								Limits: corev1.ResourceList{
 									corev1.ResourceMemory: parseQuantity(resources["memory"].(string)),
 									corev1.ResourceCPU:    parseQuantity(resources["cpu"].(string)),
+								},
+							},
+							VolumeMounts: []corev1.VolumeMount{
+								{
+									Name:      "minecraft-data",
+									MountPath: "/data",
+								},
+							},
+						},
+					},
+					Volumes: []corev1.Volume{
+						{
+							Name: "minecraft-data",
+							VolumeSource: corev1.VolumeSource{
+								PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+									ClaimName: pvcName,
 								},
 							},
 						},
@@ -259,6 +283,41 @@ func (c *MinecraftServerController) createMinecraftDeployment(obj map[string]int
 
 func int32Ptr(i int32) *int32 {
 	return &i
+}
+
+func (c *MinecraftServerController) createPersistentVolumeClaim(pvcName, namespace, storageSize string) error {
+	pvc := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      pvcName,
+			Namespace: namespace,
+			Labels: map[string]string{
+				"app": "minecraft",
+			},
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			AccessModes: []corev1.PersistentVolumeAccessMode{
+				corev1.ReadWriteOnce,
+			},
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceStorage: parseQuantity(storageSize),
+				},
+			},
+		},
+	}
+
+	_, err := c.clientset.CoreV1().PersistentVolumeClaims(namespace).Create(context.TODO(), pvc, metav1.CreateOptions{})
+	if err != nil && !errors.IsAlreadyExists(err) {
+		return fmt.Errorf("failed to create PVC: %v", err)
+	}
+
+	if errors.IsAlreadyExists(err) {
+		log.Printf("✅ PVC %s already exists", pvcName)
+	} else {
+		log.Printf("✅ Created PVC %s", pvcName)
+	}
+
+	return nil
 }
 
 func parseQuantity(s string) resource.Quantity {

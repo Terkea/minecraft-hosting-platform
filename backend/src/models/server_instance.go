@@ -53,7 +53,7 @@ type ServerInstance struct {
 	ID                  uuid.UUID        `json:"id" db:"id" gorm:"type:uuid;primary_key;default:gen_random_uuid()"`
 	TenantID            uuid.UUID        `json:"tenant_id" db:"tenant_id" gorm:"type:uuid;not null;index" validate:"required"`
 	Name                string           `json:"name" db:"name" gorm:"not null;index" validate:"required,min=1,max=50,alphanum_hyphen"`
-	SKUID               uuid.UUID        `json:"sku_id" db:"sku_id" gorm:"type:uuid;not null" validate:"required"`
+	SkuID               uuid.UUID        `json:"sku_id" db:"sku_id" gorm:"column:sku_id;type:uuid;not null" validate:"required"`
 	Status              ServerStatus     `json:"status" db:"status" gorm:"not null" validate:"required"`
 	MinecraftVersion    string           `json:"minecraft_version" db:"minecraft_version" gorm:"not null" validate:"required,minecraft_version"`
 	ServerProperties    ServerProperties `json:"server_properties" db:"server_properties" gorm:"type:jsonb"`
@@ -101,7 +101,7 @@ func (s *ServerInstance) Validate() error {
 		return errors.New("name can only contain alphanumeric characters and hyphens, and must be 1-50 characters")
 	}
 
-	if s.SKUID == uuid.Nil {
+	if s.SkuID == uuid.Nil {
 		return errors.New("sku_id is required")
 	}
 
@@ -391,7 +391,7 @@ func isValidMinecraftVersion(version string) bool {
 // ServerInstanceCreateRequest represents the request payload for creating a server instance
 type ServerInstanceCreateRequest struct {
 	Name             string           `json:"name" validate:"required,min=1,max=50"`
-	SKUID            uuid.UUID        `json:"sku_id" validate:"required"`
+	SkuID            uuid.UUID        `json:"sku_id" validate:"required"`
 	MinecraftVersion string           `json:"minecraft_version" validate:"required"`
 	ServerProperties ServerProperties `json:"server_properties,omitempty"`
 	MaxPlayers       int              `json:"max_players,omitempty" validate:"omitempty,min=1,max=100"`
@@ -407,7 +407,7 @@ func (r *ServerInstanceCreateRequest) ToServerInstance(tenantID uuid.UUID, resou
 	return &ServerInstance{
 		TenantID:         tenantID,
 		Name:             r.Name,
-		SKUID:            r.SKUID,
+		SkuID:            r.SkuID,
 		MinecraftVersion: r.MinecraftVersion,
 		ServerProperties: r.ServerProperties,
 		ResourceLimits:   resourceLimits,
@@ -446,7 +446,7 @@ type ServerInstanceResponse struct {
 	ID                  uuid.UUID        `json:"id"`
 	TenantID            uuid.UUID        `json:"tenant_id"`
 	Name                string           `json:"name"`
-	SKUID               uuid.UUID        `json:"sku_id"`
+	SkuID               uuid.UUID        `json:"sku_id"`
 	Status              ServerStatus     `json:"status"`
 	MinecraftVersion    string           `json:"minecraft_version"`
 	ServerProperties    ServerProperties `json:"server_properties"`
@@ -466,7 +466,7 @@ func (r *ServerInstanceResponse) FromServerInstance(server *ServerInstance) {
 	r.ID = server.ID
 	r.TenantID = server.TenantID
 	r.Name = server.Name
-	r.SKUID = server.SKUID
+	r.SkuID = server.SkuID
 	r.Status = server.Status
 	r.MinecraftVersion = server.MinecraftVersion
 	r.ServerProperties = server.ServerProperties
