@@ -1,0 +1,17 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: minecraft-system
+  labels:
+    app.kubernetes.io/name: minecraft-platform
+    environment: development
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: minecraft-servers
+  labels:
+    app.kubernetes.io/name: minecraft-platform
+    app.kubernetes.io/component: servers
+    environment: development

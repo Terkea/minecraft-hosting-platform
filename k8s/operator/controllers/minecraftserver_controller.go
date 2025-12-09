@@ -17,7 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	minecraftv1 "minecraft-platform/k8s/operator/api/v1"
+	minecraftv1 "minecraft-platform-operator/api/v1"
 )
 
 // MinecraftServerReconciler reconciles a MinecraftServer object
@@ -394,21 +394,30 @@ func (r *MinecraftServerReconciler) updateServerStatus(ctx context.Context, serv
 	}
 
 	// Determine server status
-	var status string
+	var phase string
 	var message string
 
 	if statefulSet.Status.ReadyReplicas == *statefulSet.Spec.Replicas {
-		status = "Running"
+		phase = "Running"
 		message = "Server is running and ready"
 	} else if statefulSet.Status.Replicas > 0 {
-		status = "Starting"
+		phase = "Starting"
 		message = "Server is starting up"
 	} else {
-		status = "Stopped"
+		phase = "Stopped"
 		message = "Server is not running"
 	}
 
-	return r.updateStatus(ctx, server, status, message)
+	// Update status directly
+	server.Status.Phase = phase
+	server.Status.Message = message
+	server.Status.LastUpdated = metav1.Now()
+
+	if err := r.Status().Update(ctx, server); err != nil {
+		return fmt.Errorf("failed to update status: %w", err)
+	}
+
+	return nil
 }
 
 // updateStatus updates the MinecraftServer status

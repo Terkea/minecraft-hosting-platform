@@ -1,0 +1,30 @@
+---
+# Example MinecraftServer CR for testing
+apiVersion: minecraft.platform.com/v1
+kind: MinecraftServer
+metadata:
+  name: test-server
+  namespace: minecraft-servers
+spec:
+  serverId: "test-001"
+  tenantId: "dev-tenant"
+  image: "itzg/minecraft-server:latest"
+  version: "1.20.1"
+  storageClass: "standard"
+  resources:
+    cpuRequest: "250m"
+    cpuLimit: "500m"
+    memoryRequest: "512Mi"
+    memoryLimit: "1Gi"
+    memory: "512M"
+    storage: "2Gi"
+  config:
+    maxPlayers: 10
+    gamemode: "survival"
+    difficulty: "normal"
+    levelName: "world"
+    motd: "Welcome to Test Server!"
+    whiteList: false
+    onlineMode: false  # For local testing
+    pvp: true
+    enableCommandBlock: true

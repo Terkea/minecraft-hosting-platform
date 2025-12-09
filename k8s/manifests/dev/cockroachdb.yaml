@@ -1,0 +1,112 @@
+---
+# CockroachDB single-node for local development
+apiVersion: v1
+kind: Service
+metadata:
+  name: cockroachdb
+  namespace: minecraft-system
+  labels:
+    app: cockroachdb
+spec:
+  ports:
+    - name: grpc
+      port: 26257
+      targetPort: 26257
+    - name: http
+      port: 8080
+      targetPort: 8080
+  selector:
+    app: cockroachdb
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: cockroachdb
+  namespace: minecraft-system
+spec:
+  serviceName: cockroachdb
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cockroachdb
+  template:
+    metadata:
+      labels:
+        app: cockroachdb
+    spec:
+      containers:
+        - name: cockroachdb
+          image: cockroachdb/cockroach:v23.1.11
+          ports:
+            - containerPort: 26257
+              name: grpc
+            - containerPort: 8080
+              name: http
+          command:
+            - /cockroach/cockroach
+            - start-single-node
+            - --insecure
+            - --advertise-addr=cockroachdb.minecraft-system.svc.cluster.local
+            - --http-addr=0.0.0.0:8080
+            - --store=path=/cockroach/cockroach-data
+          volumeMounts:
+            - name: datadir
+              mountPath: /cockroach/cockroach-data
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 2Gi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health?ready=1
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+  volumeClaimTemplates:
+    - metadata:
+        name: datadir
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 10Gi
+---
+# Init job to create database
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cockroachdb-init
+  namespace: minecraft-system
+spec:
+  template:
+    spec:
+      containers:
+        - name: init
+          image: cockroachdb/cockroach:v23.1.11
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until /cockroach/cockroach sql --insecure --host=cockroachdb.minecraft-system.svc.cluster.local -e "SELECT 1"; do
+                echo "Waiting for CockroachDB..."
+                sleep 2
+              done
+              /cockroach/cockroach sql --insecure --host=cockroachdb.minecraft-system.svc.cluster.local -e "
+                CREATE DATABASE IF NOT EXISTS minecraft_platform;
+                CREATE USER IF NOT EXISTS minecraft WITH PASSWORD 'minecraft_dev';
+                GRANT ALL ON DATABASE minecraft_platform TO minecraft;
+              "
+              echo "Database initialized successfully"
+      restartPolicy: OnFailure
+  backoffLimit: 10

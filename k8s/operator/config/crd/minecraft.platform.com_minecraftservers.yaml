@@ -1,0 +1,315 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: minecraftservers.minecraft.platform.com
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.13.0
+spec:
+  group: minecraft.platform.com
+  names:
+    kind: MinecraftServer
+    listKind: MinecraftServerList
+    plural: minecraftservers
+    singular: minecraftserver
+    shortNames:
+      - mcserver
+      - mcs
+  scope: Namespaced
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      additionalPrinterColumns:
+        - name: Status
+          type: string
+          jsonPath: .status.phase
+        - name: Players
+          type: string
+          jsonPath: .status.playerCount
+        - name: Max Players
+          type: string
+          jsonPath: .status.maxPlayers
+        - name: Version
+          type: string
+          jsonPath: .status.version
+        - name: External IP
+          type: string
+          jsonPath: .status.externalIP
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          description: MinecraftServer is the Schema for the minecraftservers API
+          type: object
+          properties:
+            apiVersion:
+              description: 'APIVersion defines the versioned schema of this representation of an object.'
+              type: string
+            kind:
+              description: 'Kind is a string value representing the REST resource this object represents.'
+              type: string
+            metadata:
+              type: object
+            spec:
+              description: MinecraftServerSpec defines the desired state of MinecraftServer
+              type: object
+              required:
+                - serverId
+                - tenantId
+                - resources
+                - config
+              properties:
+                serverId:
+                  description: ServerID is the unique identifier for this server instance
+                  type: string
+                tenantId:
+                  description: TenantID is the tenant that owns this server
+                  type: string
+                image:
+                  description: Image is the Docker image to use for the Minecraft server
+                  type: string
+                  default: "itzg/minecraft-server:latest"
+                version:
+                  description: Version is the Minecraft version to run
+                  type: string
+                  default: "1.20.1"
+                storageClass:
+                  description: StorageClass is the storage class to use for persistent volumes
+                  type: string
+                  default: "standard"
+                resources:
+                  description: Resources defines the resource requirements for the server
+                  type: object
+                  required:
+                    - cpuRequest
+                    - cpuLimit
+                    - memoryRequest
+                    - memoryLimit
+                    - memory
+                    - storage
+                  properties:
+                    cpuRequest:
+                      description: CPU request (e.g., "1000m")
+                      anyOf:
+                        - type: integer
+                        - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    cpuLimit:
+                      description: CPU limit (e.g., "2000m")
+                      anyOf:
+                        - type: integer
+                        - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    memoryRequest:
+                      description: Memory request (e.g., "2Gi")
+                      anyOf:
+                        - type: integer
+                        - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    memoryLimit:
+                      description: Memory limit (e.g., "4Gi")
+                      anyOf:
+                        - type: integer
+                        - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    memory:
+                      description: Memory allocation for JVM (e.g., "3G")
+                      type: string
+                    storage:
+                      description: Storage size (e.g., "10Gi")
+                      anyOf:
+                        - type: integer
+                        - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                config:
+                  description: Config contains the server configuration
+                  type: object
+                  properties:
+                    maxPlayers:
+                      description: MaxPlayers is the maximum number of players
+                      type: integer
+                      default: 20
+                    gamemode:
+                      description: Gamemode is the default game mode
+                      type: string
+                      default: survival
+                      enum:
+                        - survival
+                        - creative
+                        - adventure
+                        - spectator
+                    difficulty:
+                      description: Difficulty is the game difficulty
+                      type: string
+                      default: normal
+                      enum:
+                        - peaceful
+                        - easy
+                        - normal
+                        - hard
+                    levelName:
+                      description: LevelName is the world name
+                      type: string
+                      default: world
+                    motd:
+                      description: MOTD is the message of the day
+                      type: string
+                      default: "A Minecraft Server powered by Kubernetes"
+                    whiteList:
+                      description: WhiteList enables whitelist mode
+                      type: boolean
+                      default: false
+                    onlineMode:
+                      description: OnlineMode enables online mode
+                      type: boolean
+                      default: true
+                    pvp:
+                      description: PVP enables player vs player combat
+                      type: boolean
+                      default: true
+                    enableCommandBlock:
+                      description: EnableCommandBlock enables command blocks
+                      type: boolean
+                      default: true
+                    additionalProperties:
+                      description: Additional server properties as key-value pairs
+                      type: object
+                      additionalProperties:
+                        type: string
+                plugins:
+                  description: Plugins is a list of plugins to install
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - name
+                    properties:
+                      name:
+                        description: Name of the plugin
+                        type: string
+                      version:
+                        description: Version of the plugin
+                        type: string
+                      url:
+                        description: URL to download the plugin from
+                        type: string
+                      config:
+                        description: Config for the plugin
+                        type: object
+                        additionalProperties:
+                          type: string
+                      enabled:
+                        description: Enabled indicates if the plugin should be enabled
+                        type: boolean
+                        default: true
+                backup:
+                  description: Backup configuration
+                  type: object
+                  properties:
+                    enabled:
+                      description: Enabled indicates if backups should be taken
+                      type: boolean
+                      default: false
+                    schedule:
+                      description: Schedule is the cron schedule for backups
+                      type: string
+                      default: "0 2 * * *"
+                    retentionDays:
+                      description: RetentionDays is how many days to keep backups
+                      type: integer
+                      default: 7
+                    storageClass:
+                      description: StorageClass for backup storage
+                      type: string
+            status:
+              description: MinecraftServerStatus defines the observed state of MinecraftServer
+              type: object
+              properties:
+                phase:
+                  description: Phase represents the current phase of the server
+                  type: string
+                  enum:
+                    - Pending
+                    - Starting
+                    - Running
+                    - Stopping
+                    - Stopped
+                    - Error
+                message:
+                  description: Message provides additional information about the current state
+                  type: string
+                lastUpdated:
+                  description: LastUpdated is the last time the status was updated
+                  type: string
+                  format: date-time
+                externalIP:
+                  description: ExternalIP is the external IP address of the server
+                  type: string
+                port:
+                  description: Port is the external port of the server
+                  type: integer
+                  format: int32
+                playerCount:
+                  description: PlayerCount is the current number of players online
+                  type: integer
+                maxPlayers:
+                  description: MaxPlayers is the maximum number of players
+                  type: integer
+                version:
+                  description: Version is the current Minecraft version
+                  type: string
+                installedPlugins:
+                  description: InstalledPlugins is the list of installed plugins
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      version:
+                        type: string
+                      status:
+                        type: string
+                      enabled:
+                        type: boolean
+                resourceUsage:
+                  description: ResourceUsage shows current resource usage
+                  type: object
+                  properties:
+                    cpu:
+                      anyOf:
+                        - type: integer
+                        - type: string
+                      x-kubernetes-int-or-string: true
+                    memory:
+                      anyOf:
+                        - type: integer
+                        - type: string
+                      x-kubernetes-int-or-string: true
+                    storage:
+                      anyOf:
+                        - type: integer
+                        - type: string
+                      x-kubernetes-int-or-string: true
+                    networkIO:
+                      type: object
+                      properties:
+                        rxBytes:
+                          type: integer
+                          format: int64
+                        txBytes:
+                          type: integer
+                          format: int64
+                lastBackup:
+                  description: LastBackup is the timestamp of the last successful backup
+                  type: string
+                  format: date-time
+      subresources:
+        status: {}
