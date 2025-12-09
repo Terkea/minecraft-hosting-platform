@@ -18,12 +18,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	minecraftv1 "minecraft-platform-operator/api/v1"
+	"minecraft-platform-operator/pkg/events"
 )
 
 // MinecraftServerReconciler reconciles a MinecraftServer object
 type MinecraftServerReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme         *runtime.Scheme
+	EventPublisher *events.EventPublisher
 }
 
 // +kubebuilder:rbac:groups=minecraft.platform.com,resources=minecraftservers,verbs=get;list;watch;create;update;patch;delete
@@ -234,6 +236,8 @@ func (r *MinecraftServerReconciler) reconcileStatefulSet(ctx context.Context, se
 
 // buildPodSpec creates the pod specification for the Minecraft server
 func (r *MinecraftServerReconciler) buildPodSpec(server *minecraftv1.MinecraftServer) corev1.PodSpec {
+	// The itzg/minecraft-server image uses environment variables for configuration
+	// instead of mounting config files (which would be read-only)
 	return corev1.PodSpec{
 		Containers: []corev1.Container{
 			{
@@ -251,6 +255,10 @@ func (r *MinecraftServerReconciler) buildPodSpec(server *minecraftv1.MinecraftSe
 						Value: "TRUE",
 					},
 					{
+						Name:  "TYPE",
+						Value: "VANILLA",
+					},
+					{
 						Name:  "VERSION",
 						Value: server.Spec.Version,
 					},
@@ -259,8 +267,40 @@ func (r *MinecraftServerReconciler) buildPodSpec(server *minecraftv1.MinecraftSe
 						Value: server.Spec.Resources.Memory,
 					},
 					{
-						Name:  "JVM_OPTS",
-						Value: fmt.Sprintf("-Xmx%s -Xms%s", server.Spec.Resources.Memory, server.Spec.Resources.Memory),
+						Name:  "MAX_PLAYERS",
+						Value: fmt.Sprintf("%d", server.Spec.Config.MaxPlayers),
+					},
+					{
+						Name:  "DIFFICULTY",
+						Value: server.Spec.Config.Difficulty,
+					},
+					{
+						Name:  "MODE",
+						Value: server.Spec.Config.Gamemode,
+					},
+					{
+						Name:  "LEVEL",
+						Value: server.Spec.Config.LevelName,
+					},
+					{
+						Name:  "MOTD",
+						Value: server.Spec.Config.MOTD,
+					},
+					{
+						Name:  "PVP",
+						Value: fmt.Sprintf("%t", server.Spec.Config.PVP),
+					},
+					{
+						Name:  "ONLINE_MODE",
+						Value: fmt.Sprintf("%t", server.Spec.Config.OnlineMode),
+					},
+					{
+						Name:  "ENABLE_COMMAND_BLOCK",
+						Value: fmt.Sprintf("%t", server.Spec.Config.EnableCommandBlock),
+					},
+					{
+						Name:  "ENFORCE_WHITELIST",
+						Value: fmt.Sprintf("%t", server.Spec.Config.WhiteList),
 					},
 				},
 				Resources: corev1.ResourceRequirements{
@@ -278,16 +318,6 @@ func (r *MinecraftServerReconciler) buildPodSpec(server *minecraftv1.MinecraftSe
 						Name:      "minecraft-data",
 						MountPath: "/data",
 					},
-					{
-						Name:      "server-config",
-						MountPath: "/data/server.properties",
-						SubPath:   "server.properties",
-					},
-					{
-						Name:      "server-config",
-						MountPath: "/data/eula.txt",
-						SubPath:   "eula.txt",
-					},
 				},
 				LivenessProbe: &corev1.Probe{
 					ProbeHandler: corev1.ProbeHandler{
@@ -295,7 +325,7 @@ func (r *MinecraftServerReconciler) buildPodSpec(server *minecraftv1.MinecraftSe
 							Port: intstr.FromInt(25565),
 						},
 					},
-					InitialDelaySeconds: 60,
+					InitialDelaySeconds: 120, // MC server takes time to start
 					PeriodSeconds:       30,
 					TimeoutSeconds:      5,
 					FailureThreshold:    3,
@@ -306,22 +336,10 @@ func (r *MinecraftServerReconciler) buildPodSpec(server *minecraftv1.MinecraftSe
 							Port: intstr.FromInt(25565),
 						},
 					},
-					InitialDelaySeconds: 30,
+					InitialDelaySeconds: 60,
 					PeriodSeconds:       10,
 					TimeoutSeconds:      5,
-					FailureThreshold:    3,
-				},
-			},
-		},
-		Volumes: []corev1.Volume{
-			{
-				Name: "server-config",
-				VolumeSource: corev1.VolumeSource{
-					ConfigMap: &corev1.ConfigMapVolumeSource{
-						LocalObjectReference: corev1.LocalObjectReference{
-							Name: fmt.Sprintf("%s-config", server.Name),
-						},
-					},
+					FailureThreshold:    6, // Give more time for initial startup
 				},
 			},
 		},
@@ -384,6 +402,8 @@ max-world-size=29999984
 
 // updateServerStatus updates the MinecraftServer status based on StatefulSet status
 func (r *MinecraftServerReconciler) updateServerStatus(ctx context.Context, server *minecraftv1.MinecraftServer) error {
+	logger := log.FromContext(ctx)
+
 	// Get StatefulSet status
 	statefulSet := &appsv1.StatefulSet{}
 	if err := r.Get(ctx, types.NamespacedName{
@@ -393,9 +413,34 @@ func (r *MinecraftServerReconciler) updateServerStatus(ctx context.Context, serv
 		return fmt.Errorf("failed to get StatefulSet: %w", err)
 	}
 
+	// Get Service to find external IP
+	service := &corev1.Service{}
+	var externalIP string
+	var externalPort int32 = 25565
+	if err := r.Get(ctx, types.NamespacedName{
+		Name:      fmt.Sprintf("%s-service", server.Name),
+		Namespace: server.Namespace,
+	}, service); err == nil {
+		// Try to get external IP from LoadBalancer
+		if len(service.Status.LoadBalancer.Ingress) > 0 {
+			if service.Status.LoadBalancer.Ingress[0].IP != "" {
+				externalIP = service.Status.LoadBalancer.Ingress[0].IP
+			} else if service.Status.LoadBalancer.Ingress[0].Hostname != "" {
+				externalIP = service.Status.LoadBalancer.Ingress[0].Hostname
+			}
+		}
+		// Get NodePort if set
+		for _, port := range service.Spec.Ports {
+			if port.Name == "minecraft" && port.NodePort > 0 {
+				externalPort = port.NodePort
+			}
+		}
+	}
+
 	// Determine server status
 	var phase string
 	var message string
+	previousPhase := server.Status.Phase
 
 	if statefulSet.Status.ReadyReplicas == *statefulSet.Spec.Replicas {
 		phase = "Running"
@@ -412,9 +457,48 @@ func (r *MinecraftServerReconciler) updateServerStatus(ctx context.Context, serv
 	server.Status.Phase = phase
 	server.Status.Message = message
 	server.Status.LastUpdated = metav1.Now()
+	server.Status.ExternalIP = externalIP
+	server.Status.Port = externalPort
 
 	if err := r.Status().Update(ctx, server); err != nil {
 		return fmt.Errorf("failed to update status: %w", err)
+	}
+
+	// Publish state change event to NATS if phase changed
+	if r.EventPublisher != nil && previousPhase != phase {
+		logger.Info("Publishing state change event", "serverID", server.Spec.ServerID, "phase", phase)
+
+		switch phase {
+		case "Running":
+			if err := r.EventPublisher.PublishServerRunning(
+				server.Spec.ServerID,
+				server.Spec.TenantID,
+				server.Namespace,
+				externalIP,
+				int(externalPort),
+				statefulSet.Status.ReadyReplicas,
+				*statefulSet.Spec.Replicas,
+			); err != nil {
+				logger.Error(err, "Failed to publish server running event")
+			}
+		case "Starting":
+			if err := r.EventPublisher.PublishServerStarting(
+				server.Spec.ServerID,
+				server.Spec.TenantID,
+				server.Namespace,
+				server.Name,
+			); err != nil {
+				logger.Error(err, "Failed to publish server starting event")
+			}
+		case "Stopped":
+			if err := r.EventPublisher.PublishServerStopped(
+				server.Spec.ServerID,
+				server.Spec.TenantID,
+				server.Namespace,
+			); err != nil {
+				logger.Error(err, "Failed to publish server stopped event")
+			}
+		}
 	}
 
 	return nil

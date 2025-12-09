@@ -9,6 +9,7 @@ require (
 	// Database
 	gorm.io/gorm v1.25.5
 	gorm.io/driver/postgres v1.5.4
+	github.com/lib/pq v1.10.9
 
 	// Utilities
 	github.com/google/uuid v1.4.0
@@ -33,4 +34,7 @@ require (
 
 	// Validation
 	github.com/go-playground/validator/v10 v10.16.0
+
+	// NATS for event-driven messaging
+	github.com/nats-io/nats.go v1.31.0
 )

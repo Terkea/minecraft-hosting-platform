@@ -1,0 +1,118 @@
+---
+# NATS JetStream for event-driven messaging
+# Used for real-time sync between API, operator, and frontend
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nats-config
+  namespace: minecraft-system
+data:
+  nats.conf: |
+    # NATS Server Configuration
+    port: 4222
+    http_port: 8222
+
+    # JetStream configuration
+    jetstream {
+      store_dir: /data/jetstream
+      max_mem: 256M
+      max_file: 1G
+    }
+
+    # Cluster name
+    server_name: nats-server
+
+    # Logging
+    debug: false
+    trace: false
+    logtime: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nats
+  namespace: minecraft-system
+  labels:
+    app: nats
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nats
+  template:
+    metadata:
+      labels:
+        app: nats
+    spec:
+      containers:
+        - name: nats
+          image: nats:2.10-alpine
+          args:
+            - "--config"
+            - "/etc/nats/nats.conf"
+          ports:
+            - name: client
+              containerPort: 4222
+            - name: monitoring
+              containerPort: 8222
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "512Mi"
+          volumeMounts:
+            - name: config
+              mountPath: /etc/nats
+            - name: data
+              mountPath: /data
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8222
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8222
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: config
+          configMap:
+            name: nats-config
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats
+  namespace: minecraft-system
+  labels:
+    app: nats
+spec:
+  selector:
+    app: nats
+  ports:
+    - name: client
+      port: 4222
+      targetPort: 4222
+    - name: monitoring
+      port: 8222
+      targetPort: 8222
+  type: ClusterIP
+---
+# PodDisruptionBudget for production readiness
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: nats-pdb
+  namespace: minecraft-system
+spec:
+  minAvailable: 0  # For single replica dev setup
+  selector:
+    matchLabels:
+      app: nats
