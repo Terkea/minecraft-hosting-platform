@@ -1,3 +1,17 @@
+export interface ServerMetrics {
+  cpu?: {
+    usage: string;
+    usageNano: number;
+  };
+  memory?: {
+    usage: string;
+    usageBytes: number;
+  };
+  uptime?: number;
+  restartCount: number;
+  ready: boolean;
+}
+
 export interface Server {
   name: string;
   namespace: string;
@@ -9,6 +23,7 @@ export interface Server {
   port?: number;
   playerCount?: number;
   maxPlayers?: number;
+  metrics?: ServerMetrics;
 }
 
 export interface CreateServerRequest {
@@ -29,9 +44,14 @@ export interface ApiResponse<T> {
   error?: string;
 }
 
+export interface MetricsUpdate {
+  [serverName: string]: ServerMetrics;
+}
+
 export interface WebSocketMessage {
-  type: 'initial' | 'created' | 'deleted' | 'status_update';
+  type: 'initial' | 'created' | 'deleted' | 'status_update' | 'metrics_update';
   servers?: Server[];
   server?: Server;
+  metrics?: MetricsUpdate;
   timestamp?: string;
 }

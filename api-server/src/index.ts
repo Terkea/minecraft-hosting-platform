@@ -5,6 +5,7 @@ import { createServer } from 'http';
 import { K8sClient, MinecraftServerSpec, MinecraftServerStatus } from './k8s-client.js';
 import { SyncService } from './services/sync-service.js';
 import { BackupService } from './services/backup-service.js';
+import { MetricsService, ServerMetrics } from './services/metrics-service.js';
 import { getEventBus, EventType } from './events/event-bus.js';
 
 const app = express();
@@ -19,6 +20,7 @@ const K8S_NAMESPACE = process.env.K8S_NAMESPACE || 'minecraft-servers';
 const k8sClient = new K8sClient(K8S_NAMESPACE);
 const syncService = new SyncService(k8sClient);
 const backupService = new BackupService(K8S_NAMESPACE);
+const metricsService = new MetricsService(K8S_NAMESPACE);
 const eventBus = getEventBus();
 
 // Middleware
@@ -298,6 +300,64 @@ app.post('/api/v1/servers/:name/scale', async (req: Request<{ name: string }, {}
   }
 });
 
+// Stop a server (scale StatefulSet to 0)
+app.post('/api/v1/servers/:name/stop', async (req: Request, res: Response) => {
+  try {
+    const { name } = req.params;
+    await k8sClient.stopServer(name);
+
+    broadcastServerUpdate('stopped', { name, namespace: K8S_NAMESPACE, phase: 'Stopped' });
+
+    res.json({
+      message: `Server '${name}' stop initiated`,
+      server: { name, phase: 'Stopping' },
+    });
+  } catch (error: any) {
+    console.error('Failed to stop server:', error);
+
+    if (error.message.includes('not found')) {
+      return res.status(404).json({
+        error: 'not_found',
+        message: error.message,
+      });
+    }
+
+    res.status(500).json({
+      error: 'stop_failed',
+      message: error.message,
+    });
+  }
+});
+
+// Start a server (scale StatefulSet to 1)
+app.post('/api/v1/servers/:name/start', async (req: Request, res: Response) => {
+  try {
+    const { name } = req.params;
+    await k8sClient.startServer(name);
+
+    broadcastServerUpdate('started', { name, namespace: K8S_NAMESPACE, phase: 'Starting' });
+
+    res.json({
+      message: `Server '${name}' start initiated`,
+      server: { name, phase: 'Starting' },
+    });
+  } catch (error: any) {
+    console.error('Failed to start server:', error);
+
+    if (error.message.includes('not found')) {
+      return res.status(404).json({
+        error: 'not_found',
+        message: error.message,
+      });
+    }
+
+    res.status(500).json({
+      error: 'start_failed',
+      message: error.message,
+    });
+  }
+});
+
 // Get pod status
 app.get('/api/v1/servers/:name/pod', async (req: Request, res: Response) => {
   try {
@@ -316,6 +376,71 @@ app.get('/api/v1/servers/:name/pod', async (req: Request, res: Response) => {
     console.error('Failed to get pod status:', error);
     res.status(500).json({
       error: 'pod_status_failed',
+      message: error.message,
+    });
+  }
+});
+
+// Get server metrics
+app.get('/api/v1/servers/:name/metrics', async (req: Request, res: Response) => {
+  try {
+    const { name } = req.params;
+    const metrics = metricsService.getServerMetrics(name);
+
+    if (!metrics) {
+      return res.status(404).json({
+        error: 'not_found',
+        message: `Metrics for server '${name}' not found`,
+      });
+    }
+
+    res.json({
+      serverName: name,
+      metrics: {
+        cpu: metrics.pod?.cpu,
+        memory: metrics.pod?.memory,
+        uptime: metrics.uptime,
+        uptimeFormatted: metrics.uptime ? MetricsService.formatUptime(metrics.uptime) : undefined,
+        restartCount: metrics.restartCount,
+        ready: metrics.ready,
+        startTime: metrics.startTime,
+      },
+    });
+  } catch (error: any) {
+    console.error('Failed to get server metrics:', error);
+    res.status(500).json({
+      error: 'metrics_failed',
+      message: error.message,
+    });
+  }
+});
+
+// Get all metrics
+app.get('/api/v1/metrics', async (_req: Request, res: Response) => {
+  try {
+    const allMetrics = metricsService.getAllMetrics();
+    const metricsObj: Record<string, any> = {};
+
+    allMetrics.forEach((metrics, serverName) => {
+      metricsObj[serverName] = {
+        cpu: metrics.pod?.cpu,
+        memory: metrics.pod?.memory,
+        uptime: metrics.uptime,
+        uptimeFormatted: metrics.uptime ? MetricsService.formatUptime(metrics.uptime) : undefined,
+        restartCount: metrics.restartCount,
+        ready: metrics.ready,
+        startTime: metrics.startTime,
+      };
+    });
+
+    res.json({
+      metrics: metricsObj,
+      serverCount: allMetrics.size,
+    });
+  } catch (error: any) {
+    console.error('Failed to get all metrics:', error);
+    res.status(500).json({
+      error: 'metrics_failed',
       message: error.message,
     });
   }
@@ -523,6 +648,31 @@ function broadcastServerUpdate(event: string, data: any) {
   });
 }
 
+function broadcastMetricsUpdate(metrics: Map<string, ServerMetrics>) {
+  const metricsObj: Record<string, any> = {};
+  metrics.forEach((value, key) => {
+    metricsObj[key] = {
+      cpu: value.pod?.cpu,
+      memory: value.pod?.memory,
+      uptime: value.uptime,
+      restartCount: value.restartCount,
+      ready: value.ready,
+    };
+  });
+
+  const message = JSON.stringify({
+    type: 'metrics_update',
+    metrics: metricsObj,
+    timestamp: new Date().toISOString(),
+  });
+
+  wsClients.forEach(client => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(message);
+    }
+  });
+}
+
 // Register sync service callbacks for real-time updates
 syncService.registerCallback({
   onServerUpdate: (serverStatus, eventType) => {
@@ -570,6 +720,8 @@ API Endpoints:
     GET    /api/v1/servers/:name/logs   - Get server logs
     GET    /api/v1/servers/:name/pod    - Get pod status
     POST   /api/v1/servers/:name/scale  - Scale server resources
+    POST   /api/v1/servers/:name/stop   - Stop a server
+    POST   /api/v1/servers/:name/start  - Start a server
     POST   /api/v1/servers/:name/console - Execute RCON command
 
   Backups:
@@ -587,12 +739,20 @@ API Endpoints:
   } catch (error) {
     console.error('[Startup] Failed to initialize sync service:', error);
   }
+
+  // Start metrics collection with WebSocket broadcast
+  metricsService.setMetricsCallback((metrics) => {
+    broadcastMetricsUpdate(metrics);
+  });
+  metricsService.startPolling(5000); // Poll every 5 seconds
+  console.log('[Startup] Metrics service initialized');
 });
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
   console.log('[Shutdown] SIGTERM received, shutting down...');
   syncService.stopWatch();
+  metricsService.stopPolling();
   server.close(() => {
     console.log('[Shutdown] Server closed');
     process.exit(0);
@@ -602,6 +762,7 @@ process.on('SIGTERM', () => {
 process.on('SIGINT', () => {
   console.log('[Shutdown] SIGINT received, shutting down...');
   syncService.stopWatch();
+  metricsService.stopPolling();
   server.close(() => {
     console.log('[Shutdown] Server closed');
     process.exit(0);

@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Server, Plus, Trash2, RefreshCw, Copy, Check, Wifi, WifiOff } from 'lucide-react';
+import { Server, Plus, Trash2, RefreshCw, Copy, Check, Wifi, WifiOff, Eye, Square, Play } from 'lucide-react';
 import { useWebSocket } from './useWebSocket';
-import { createServer, deleteServer, listServers } from './api';
+import { createServer, deleteServer, listServers, stopServer, startServer } from './api';
+import { ServerDetail } from './ServerDetail';
 import type { Server as ServerType, CreateServerRequest } from './types';
 
 function App() {
@@ -10,6 +11,18 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copiedServer, setCopiedServer] = useState<string | null>(null);
+  const [selectedServer, setSelectedServer] = useState<string | null>(null);
+
+  // If a server is selected, show the detail page
+  if (selectedServer) {
+    return (
+      <ServerDetail
+        serverName={selectedServer}
+        onBack={() => setSelectedServer(null)}
+        connected={connected}
+      />
+    );
+  }
 
   const handleRefresh = async () => {
     setIsLoading(true);
@@ -34,6 +47,32 @@ function App() {
       setServers((prev) => prev.filter((s) => s.name !== name));
     } catch (err) {
       setError(`Failed to delete server: ${err}`);
+    }
+  };
+
+  const handleStop = async (name: string) => {
+    try {
+      await stopServer(name);
+      setServers((prev) =>
+        prev.map((s) =>
+          s.name === name ? { ...s, phase: 'Stopping' } : s
+        )
+      );
+    } catch (err) {
+      setError(`Failed to stop server: ${err}`);
+    }
+  };
+
+  const handleStart = async (name: string) => {
+    try {
+      await startServer(name);
+      setServers((prev) =>
+        prev.map((s) =>
+          s.name === name ? { ...s, phase: 'Starting' } : s
+        )
+      );
+    } catch (err) {
+      setError(`Failed to start server: ${err}`);
     }
   };
 
@@ -185,6 +224,31 @@ function App() {
                 </div>
 
                 <div className="flex gap-2 pt-4 border-t border-gray-700">
+                  <button
+                    onClick={() => setSelectedServer(server.name)}
+                    className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-green-500/20 hover:bg-green-500/30 text-green-400 rounded-lg transition-colors"
+                  >
+                    <Eye className="w-4 h-4" />
+                    View
+                  </button>
+                  {server.phase?.toLowerCase() === 'stopped' ? (
+                    <button
+                      onClick={() => handleStart(server.name)}
+                      className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-lg transition-colors"
+                    >
+                      <Play className="w-4 h-4" />
+                      Start
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleStop(server.name)}
+                      disabled={server.phase?.toLowerCase() === 'stopping' || server.phase?.toLowerCase() === 'starting'}
+                      className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-400 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Square className="w-4 h-4" />
+                      {server.phase?.toLowerCase() === 'stopping' ? 'Stopping...' : 'Stop'}
+                    </button>
+                  )}
                   <button
                     onClick={() => handleDelete(server.name)}
                     className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg transition-colors"

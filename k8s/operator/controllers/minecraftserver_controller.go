@@ -200,8 +200,11 @@ func (r *MinecraftServerReconciler) reconcileStatefulSet(ctx context.Context, se
 			return err
 		}
 
-		// Configure StatefulSet
+		// Configure StatefulSet - set replicas based on Stopped field
 		replicas := int32(1)
+		if server.Spec.Stopped {
+			replicas = int32(0)
+		}
 		statefulSet.Spec = appsv1.StatefulSetSpec{
 			Replicas:    &replicas,
 			ServiceName: fmt.Sprintf("%s-service", server.Name),
@@ -301,6 +304,19 @@ func (r *MinecraftServerReconciler) buildPodSpec(server *minecraftv1.MinecraftSe
 					{
 						Name:  "ENFORCE_WHITELIST",
 						Value: fmt.Sprintf("%t", server.Spec.Config.WhiteList),
+					},
+					// RCON configuration for remote console access
+					{
+						Name:  "ENABLE_RCON",
+						Value: "true",
+					},
+					{
+						Name:  "RCON_PASSWORD",
+						Value: "minecraft",
+					},
+					{
+						Name:  "RCON_PORT",
+						Value: "25575",
 					},
 				},
 				Resources: corev1.ResourceRequirements{
@@ -442,15 +458,24 @@ func (r *MinecraftServerReconciler) updateServerStatus(ctx context.Context, serv
 	var message string
 	previousPhase := server.Status.Phase
 
-	if statefulSet.Status.ReadyReplicas == *statefulSet.Spec.Replicas {
+	// Check if server is intentionally stopped
+	if server.Spec.Stopped {
+		if statefulSet.Status.Replicas > 0 {
+			phase = "Stopping"
+			message = "Server is stopping"
+		} else {
+			phase = "Stopped"
+			message = "Server is stopped"
+		}
+	} else if *statefulSet.Spec.Replicas > 0 && statefulSet.Status.ReadyReplicas == *statefulSet.Spec.Replicas {
 		phase = "Running"
 		message = "Server is running and ready"
-	} else if statefulSet.Status.Replicas > 0 {
+	} else if statefulSet.Status.Replicas > 0 || *statefulSet.Spec.Replicas > 0 {
 		phase = "Starting"
 		message = "Server is starting up"
 	} else {
-		phase = "Stopped"
-		message = "Server is not running"
+		phase = "Pending"
+		message = "Server is pending"
 	}
 
 	// Update status directly

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { Server, WebSocketMessage } from './types';
+import { Server, WebSocketMessage, ServerMetrics } from './types';
 
 export function useWebSocket() {
   const [servers, setServers] = useState<Server[]>([]);
@@ -40,6 +40,20 @@ export function useWebSocket() {
             if (message.server) {
               setServers((prev) =>
                 prev.filter((s) => s.name !== message.server!.name)
+              );
+            }
+            break;
+
+          case 'metrics_update':
+            if (message.metrics) {
+              setServers((prev) =>
+                prev.map((server) => {
+                  const serverMetrics = message.metrics![server.name];
+                  if (serverMetrics) {
+                    return { ...server, metrics: serverMetrics };
+                  }
+                  return server;
+                })
               );
             }
             break;

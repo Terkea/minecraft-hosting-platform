@@ -67,6 +67,10 @@ spec:
                 tenantId:
                   description: TenantID is the tenant that owns this server
                   type: string
+                stopped:
+                  description: Stopped indicates if the server should be stopped (scaled to 0 replicas)
+                  type: boolean
+                  default: false
                 image:
                   description: Image is the Docker image to use for the Minecraft server
                   type: string

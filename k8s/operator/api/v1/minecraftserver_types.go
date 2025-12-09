@@ -14,6 +14,10 @@ type MinecraftServerSpec struct {
 	// TenantID is the tenant that owns this server
 	TenantID string `json:"tenantId"`
 
+	// Stopped indicates if the server should be stopped (scaled to 0 replicas)
+	// +kubebuilder:default=false
+	Stopped bool `json:"stopped,omitempty"`
+
 	// Image is the Docker image to use for the Minecraft server
 	// +kubebuilder:default="itzg/minecraft-server:latest"
 	Image string `json:"image,omitempty"`

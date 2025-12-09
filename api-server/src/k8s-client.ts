@@ -4,6 +4,7 @@ import * as k8s from '@kubernetes/client-node';
 export interface MinecraftServerSpec {
   serverId: string;
   tenantId: string;
+  stopped?: boolean;
   image?: string;
   version: string;
   resources: {
@@ -62,6 +63,7 @@ export class K8sClient {
   private kc: k8s.KubeConfig;
   private customApi: k8s.CustomObjectsApi;
   private coreApi: k8s.CoreV1Api;
+  private appsApi: k8s.AppsV1Api;
   private namespace: string;
 
   private readonly group = 'minecraft.platform.com';
@@ -74,6 +76,7 @@ export class K8sClient {
 
     this.customApi = this.kc.makeApiClient(k8s.CustomObjectsApi);
     this.coreApi = this.kc.makeApiClient(k8s.CoreV1Api);
+    this.appsApi = this.kc.makeApiClient(k8s.AppsV1Api);
     this.namespace = namespace;
   }
 
@@ -285,6 +288,74 @@ export class K8sClient {
         storage: undefined,
       } as any,
     });
+  }
+
+  // Stop a server by setting the stopped field on the CRD
+  async stopServer(name: string): Promise<void> {
+    try {
+      // Get existing resource
+      const existing = await this.customApi.getNamespacedCustomObject(
+        this.group,
+        this.version,
+        this.namespace,
+        this.plural,
+        name
+      );
+
+      const server = existing.body as MinecraftServer;
+
+      // Set stopped to true
+      server.spec.stopped = true;
+
+      // Update the CRD
+      await this.customApi.replaceNamespacedCustomObject(
+        this.group,
+        this.version,
+        this.namespace,
+        this.plural,
+        name,
+        server
+      );
+    } catch (error: any) {
+      if (error.response?.statusCode === 404) {
+        throw new Error(`Server '${name}' not found`);
+      }
+      throw error;
+    }
+  }
+
+  // Start a server by setting the stopped field on the CRD
+  async startServer(name: string): Promise<void> {
+    try {
+      // Get existing resource
+      const existing = await this.customApi.getNamespacedCustomObject(
+        this.group,
+        this.version,
+        this.namespace,
+        this.plural,
+        name
+      );
+
+      const server = existing.body as MinecraftServer;
+
+      // Set stopped to false
+      server.spec.stopped = false;
+
+      // Update the CRD
+      await this.customApi.replaceNamespacedCustomObject(
+        this.group,
+        this.version,
+        this.namespace,
+        this.plural,
+        name,
+        server
+      );
+    } catch (error: any) {
+      if (error.response?.statusCode === 404) {
+        throw new Error(`Server '${name}' not found`);
+      }
+      throw error;
+    }
   }
 
   // Watch for server changes
