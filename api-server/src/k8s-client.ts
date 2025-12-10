@@ -99,10 +99,10 @@ export class K8sClient {
       version: spec.version || 'LATEST',
       resources: spec.resources || {
         cpuRequest: '500m',
-        cpuLimit: '2000m',
+        cpuLimit: '2',
         memoryRequest: '1Gi',
-        memoryLimit: '2Gi',
-        memory: '2G',
+        memoryLimit: '4Gi',
+        memory: '4G',
         storage: '10Gi',
       },
       config: spec.config || {
@@ -447,22 +447,38 @@ export class K8sClient {
     const podName = `${name}-0`;
 
     return new Promise((resolve, reject) => {
-      let output = '';
+      let stdout = '';
+      let stderr = '';
+
+      // Create writable streams to capture output
+      const stdoutStream = new (require('stream').Writable)({
+        write(chunk: Buffer, encoding: string, callback: () => void) {
+          stdout += chunk.toString();
+          callback();
+        }
+      });
+
+      const stderrStream = new (require('stream').Writable)({
+        write(chunk: Buffer, encoding: string, callback: () => void) {
+          stderr += chunk.toString();
+          callback();
+        }
+      });
 
       exec.exec(
         this.namespace,
         podName,
         'minecraft-server',
         ['rcon-cli', command],
-        process.stdout,
-        process.stderr,
+        stdoutStream,
+        stderrStream,
         null,
         false,
         (status) => {
           if (status.status === 'Success') {
-            resolve(output);
+            resolve(stdout.trim() || 'Command executed successfully');
           } else {
-            reject(new Error(status.message || 'Command execution failed'));
+            reject(new Error(stderr || status.message || 'Command execution failed'));
           }
         }
       ).catch(reject);

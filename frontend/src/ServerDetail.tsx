@@ -54,12 +54,15 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
     return () => clearInterval(interval);
   }, [serverName, activeTab]);
 
-  // Auto-scroll console
+  // Auto-scroll console only when new entries are added
+  const prevEntriesLengthRef = useRef(0);
   useEffect(() => {
-    if (autoScrollRef.current) {
+    // Only scroll if entries were actually added (not on initial render or when no changes)
+    if (autoScrollRef.current && consoleEntries.length > prevEntriesLengthRef.current) {
       consoleEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [consoleEntries]);
+    prevEntriesLengthRef.current = consoleEntries.length;
+  }, [consoleEntries.length]);
 
   const loadServerData = async () => {
     setIsLoading(true);
@@ -520,19 +523,28 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
               <div ref={consoleEndRef} />
             </div>
             <form onSubmit={handleExecuteCommand} className="p-4 border-t border-gray-700">
+              {server.phase?.toLowerCase() !== 'running' && (
+                <div className="mb-3 px-3 py-2 bg-yellow-500/20 border border-yellow-500/30 rounded-lg text-yellow-400 text-sm">
+                  Console commands are only available when the server is running.
+                  {server.phase?.toLowerCase() === 'starting' && ' Please wait for the server to finish starting.'}
+                  {server.phase?.toLowerCase() === 'stopped' && ' Start the server to use console commands.'}
+                </div>
+              )}
               <div className="flex gap-2">
                 <input
                   type="text"
                   value={command}
                   onChange={(e) => setCommand(e.target.value)}
-                  placeholder="Enter command (e.g., list, say Hello, time set day)"
-                  disabled={isExecutingCommand}
-                  className="flex-1 px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-green-500"
+                  placeholder={server.phase?.toLowerCase() === 'running'
+                    ? "Enter command (e.g., list, say Hello, time set day)"
+                    : "Server must be running to execute commands"}
+                  disabled={isExecutingCommand || server.phase?.toLowerCase() !== 'running'}
+                  className="flex-1 px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
                 />
                 <button
                   type="submit"
-                  disabled={isExecutingCommand || !command.trim()}
-                  className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-600/50 text-white rounded-lg transition-colors flex items-center gap-2"
+                  disabled={isExecutingCommand || !command.trim() || server.phase?.toLowerCase() !== 'running'}
+                  className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-600/50 disabled:cursor-not-allowed text-white rounded-lg transition-colors flex items-center gap-2"
                 >
                   <Send className="w-4 h-4" />
                   {isExecutingCommand ? 'Sending...' : 'Send'}

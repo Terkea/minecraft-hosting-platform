@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"time"
@@ -12,6 +13,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/tools/remotecommand"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -19,6 +24,7 @@ import (
 
 	minecraftv1 "minecraft-platform-operator/api/v1"
 	"minecraft-platform-operator/pkg/events"
+	"minecraft-platform-operator/pkg/rcon"
 )
 
 // MinecraftServerReconciler reconciles a MinecraftServer object
@@ -26,6 +32,8 @@ type MinecraftServerReconciler struct {
 	client.Client
 	Scheme         *runtime.Scheme
 	EventPublisher *events.EventPublisher
+	Clientset      *kubernetes.Clientset
+	RestConfig     *rest.Config
 }
 
 // +kubebuilder:rbac:groups=minecraft.platform.com,resources=minecraftservers,verbs=get;list;watch;create;update;patch;delete
@@ -35,6 +43,7 @@ type MinecraftServerReconciler struct {
 // +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 
 // Reconcile handles the reconciliation loop for MinecraftServer resources
 func (r *MinecraftServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -485,6 +494,23 @@ func (r *MinecraftServerReconciler) updateServerStatus(ctx context.Context, serv
 	server.Status.ExternalIP = externalIP
 	server.Status.Port = externalPort
 
+	// Query player count via RCON if server is running
+	if phase == "Running" {
+		playerInfo := r.queryPlayerCount(ctx, server)
+		if playerInfo != nil {
+			server.Status.PlayerCount = playerInfo.Online
+			server.Status.MaxPlayers = playerInfo.Max
+		}
+	} else {
+		// Reset player count when not running
+		server.Status.PlayerCount = 0
+	}
+
+	// Set max players from config if not set from RCON
+	if server.Status.MaxPlayers == 0 {
+		server.Status.MaxPlayers = server.Spec.Config.MaxPlayers
+	}
+
 	if err := r.Status().Update(ctx, server); err != nil {
 		return fmt.Errorf("failed to update status: %w", err)
 	}
@@ -527,6 +553,73 @@ func (r *MinecraftServerReconciler) updateServerStatus(ctx context.Context, serv
 	}
 
 	return nil
+}
+
+// queryPlayerCount queries the Minecraft server via kubectl exec to run rcon-cli
+func (r *MinecraftServerReconciler) queryPlayerCount(ctx context.Context, server *minecraftv1.MinecraftServer) *rcon.PlayerInfo {
+	logger := log.FromContext(ctx)
+
+	if r.Clientset == nil || r.RestConfig == nil {
+		logger.V(1).Info("Clientset or RestConfig not available for exec")
+		return nil
+	}
+
+	podName := fmt.Sprintf("%s-0", server.Name)
+
+	// Check if pod exists and is running
+	pod := &corev1.Pod{}
+	if err := r.Get(ctx, types.NamespacedName{
+		Name:      podName,
+		Namespace: server.Namespace,
+	}, pod); err != nil {
+		logger.V(1).Info("Could not get pod for RCON query", "error", err)
+		return nil
+	}
+
+	if pod.Status.Phase != corev1.PodRunning {
+		logger.V(1).Info("Pod not running yet", "phase", pod.Status.Phase)
+		return nil
+	}
+
+	// Execute rcon-cli list command inside the pod
+	req := r.Clientset.CoreV1().RESTClient().Post().
+		Resource("pods").
+		Name(podName).
+		Namespace(server.Namespace).
+		SubResource("exec").
+		Param("container", "minecraft-server").
+		Param("command", "rcon-cli").
+		Param("command", "list").
+		Param("stdout", "true").
+		Param("stderr", "true")
+
+	exec, err := remotecommand.NewSPDYExecutor(r.RestConfig, "POST", req.URL())
+	if err != nil {
+		logger.V(1).Info("Failed to create executor", "error", err)
+		return nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	err = exec.StreamWithContext(ctx, remotecommand.StreamOptions{
+		Stdout: &stdout,
+		Stderr: &stderr,
+	})
+	if err != nil {
+		logger.V(1).Info("Failed to execute rcon-cli", "error", err, "stderr", stderr.String())
+		return nil
+	}
+
+	response := stdout.String()
+	logger.V(1).Info("RCON list response", "response", response)
+
+	playerInfo, err := rcon.ParsePlayerList(response)
+	if err != nil {
+		logger.V(1).Info("Failed to parse player list", "error", err, "response", response)
+		return nil
+	}
+
+	logger.V(1).Info("Got player count", "online", playerInfo.Online, "max", playerInfo.Max)
+	return playerInfo
 }
 
 // updateStatus updates the MinecraftServer status
