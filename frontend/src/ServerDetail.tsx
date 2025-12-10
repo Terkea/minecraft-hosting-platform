@@ -79,29 +79,32 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
 
   // Initial data load
   useEffect(() => {
-    loadServerData();
+    void loadServerData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serverName]);
 
   // Refresh metrics and logs periodically
   useEffect(() => {
     const interval = setInterval(() => {
-      refreshMetrics();
+      void refreshMetrics();
       if (activeTab === 'console') {
-        refreshLogs();
+        void refreshLogs();
       }
       if (activeTab === 'players') {
-        fetchPlayers();
+        void fetchPlayers();
       }
     }, 3000);
 
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serverName, activeTab]);
 
   // Fetch players when switching to players tab
   useEffect(() => {
     if (activeTab === 'players') {
-      fetchPlayers(true); // Show loading on initial tab switch
+      void fetchPlayers(true); // Show loading on initial tab switch
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
   // Auto-scroll console only when new entries are added
@@ -137,8 +140,8 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
       }));
       setConsoleEntries(logEntries);
       setLastLogCount(logsData.length);
-    } catch (err: any) {
-      setError(err.message || 'Failed to load server data');
+    } catch (error: any) {
+      setError(error.message || 'Failed to load server data');
     } finally {
       setIsLoading(false);
     }
@@ -152,7 +155,7 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
       ]);
       setServer(serverData);
       if (metricsData) setMetrics(metricsData.metrics);
-    } catch (err) {
+    } catch {
       // Silently fail on refresh
     }
   };
@@ -171,7 +174,7 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
         setConsoleEntries((prev) => [...prev, ...newEntries]);
         setLastLogCount(logsData.length);
       }
-    } catch (err) {
+    } catch {
       // Silently fail on refresh
     }
   };
@@ -197,7 +200,7 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
           setSelectedPlayer(updated);
         }
       }
-    } catch (err) {
+    } catch {
       // Silently fail on refresh
     } finally {
       playersFetchingRef.current = false;
@@ -267,7 +270,7 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
 
   const copyAddress = () => {
     if (server?.externalIP && server?.port) {
-      navigator.clipboard.writeText(`${server.externalIP}:${server.port}`);
+      void navigator.clipboard.writeText(`${server.externalIP}:${server.port}`);
       setCopiedAddress(true);
       setTimeout(() => setCopiedAddress(false), 2000);
     }

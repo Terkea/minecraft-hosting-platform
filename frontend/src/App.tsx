@@ -42,7 +42,7 @@ function App() {
       const data = await listServers();
       setServers(data);
       setError(null);
-    } catch (err) {
+    } catch {
       setError('Failed to refresh servers');
     } finally {
       setIsLoading(false);
@@ -84,7 +84,7 @@ function App() {
     const connectionString =
       server.externalIP && server.port ? `${server.externalIP}:${server.port}` : 'Not available';
 
-    navigator.clipboard.writeText(connectionString);
+    void navigator.clipboard.writeText(connectionString);
     setCopiedServer(server.name);
     setTimeout(() => setCopiedServer(null), 2000);
   };
