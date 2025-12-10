@@ -46,15 +46,12 @@ jobs:
 
       - name: Check formatting
         run: npm run format:check
-        continue-on-error: true
 
       - name: Lint API Server
         run: npm run lint:api
-        continue-on-error: true
 
       - name: Lint Frontend
         run: npm run lint:frontend
-        continue-on-error: true
 
       - name: Install golangci-lint
         uses: golangci/golangci-lint-action@v4
@@ -62,7 +59,6 @@ jobs:
           version: latest
           working-directory: k8s/operator
           args: --timeout=5m
-        continue-on-error: true
 
   # ============================================
   # TypeScript Type Check
@@ -89,11 +85,9 @@ jobs:
 
       - name: Type check API Server
         run: npm run typecheck:api
-        continue-on-error: true
 
       - name: Type check Frontend
         run: npm run typecheck:frontend
-        continue-on-error: true
 
   # ============================================
   # Build API Server
@@ -117,17 +111,13 @@ jobs:
 
       - name: Build API Server
         run: cd api-server && npm run build
-        continue-on-error: true
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
-        if: always()
-        continue-on-error: true
         with:
           name: api-server-dist
           path: api-server/dist
           retention-days: 7
-          if-no-files-found: ignore
 
   # ============================================
   # Build Frontend
@@ -151,17 +141,13 @@ jobs:
 
       - name: Build Frontend
         run: cd frontend && npm run build
-        continue-on-error: true
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
-        if: always()
-        continue-on-error: true
         with:
           name: frontend-dist
           path: frontend/dist
           retention-days: 7
-          if-no-files-found: ignore
 
   # ============================================
   # Build Go Operator
@@ -208,7 +194,6 @@ jobs:
 
       - name: Run tests
         run: cd k8s/operator && go test -v -race -coverprofile=coverage.out ./...
-        continue-on-error: true
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4
@@ -216,7 +201,6 @@ jobs:
           files: k8s/operator/coverage.out
           flags: go
           fail_ci_if_error: false
-        continue-on-error: true
 
   # ============================================
   # Secret Detection
@@ -233,4 +217,3 @@ jobs:
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true

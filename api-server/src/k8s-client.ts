@@ -1,5 +1,5 @@
 import * as k8s from '@kubernetes/client-node';
-import { rconPool } from './utils/rcon-pool';
+import { rconPool } from './utils/rcon-pool.js';
 
 // MinecraftServer CRD types
 export interface MinecraftServerSpec {

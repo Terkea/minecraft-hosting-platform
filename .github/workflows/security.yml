@@ -120,11 +120,9 @@ jobs:
 
       - name: NPM Audit (API Server)
         run: cd api-server && npm audit --audit-level=high
-        continue-on-error: true
 
       - name: NPM Audit (Frontend)
         run: cd frontend && npm audit --audit-level=high
-        continue-on-error: true
 
   go-vulncheck:
     name: Go Vulnerability Check

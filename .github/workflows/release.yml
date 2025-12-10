@@ -67,11 +67,9 @@ jobs:
 
       - name: Lint
         run: npm run lint
-        continue-on-error: true
 
       - name: Type check
         run: npm run typecheck
-        continue-on-error: true
 
       - name: Build API Server
         run: cd api-server && npm run build
