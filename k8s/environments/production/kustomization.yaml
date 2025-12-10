@@ -1,0 +1,97 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: minecraft-platform-production
+
+namespace: minecraft-platform-prod
+
+# Base resources to inherit from
+resources:
+  - ../../base
+  - network-policies.yaml
+  - resource-quota.yaml
+  - pod-disruption-budgets.yaml
+  - security-policies.yaml
+
+# Production-specific resource patches
+patchesStrategicMerge:
+  - api-server-patch.yaml
+  - frontend-patch.yaml
+  - operator-patch.yaml
+  - ingress-patch.yaml
+
+# ConfigMaps and Secrets
+configMapGenerator:
+  - name: app-config
+    literals:
+      - ENVIRONMENT=production
+      - LOG_LEVEL=info
+      - METRICS_ENABLED=true
+      - TRACING_ENABLED=true
+      - DATABASE_MAX_CONNECTIONS=100
+      - REDIS_MAX_CONNECTIONS=50
+      - RATE_LIMIT_REQUESTS_PER_SECOND=1000
+      - BACKUP_RETENTION_DAYS=90
+
+  - name: monitoring-config
+    files:
+      - prometheus.yml
+      - grafana-dashboards.json
+      - alerting-rules.yml
+
+# Labels applied to all resources
+commonLabels:
+  app.kubernetes.io/instance: minecraft-platform
+  app.kubernetes.io/version: "1.0.0"
+  app.kubernetes.io/component: production
+  environment: production
+
+# Annotations applied to all resources
+commonAnnotations:
+  config.kubernetes.io/local-config: "false"
+  deployment.kubernetes.io/revision: "1"
+
+# Images with production tags
+images:
+  - name: minecraft-platform/api-server
+    newTag: "v1.0.0"
+  - name: minecraft-platform/frontend
+    newTag: "v1.0.0"
+  - name: minecraft-platform/operator
+    newTag: "v1.0.0"
+
+# Replicas for production scaling
+replicas:
+  - name: api-server
+    count: 3
+  - name: frontend
+    count: 2
+  - name: operator
+    count: 2
+  - name: nats
+    count: 3
+
+# Variable substitutions
+replacements:
+  - source:
+      kind: ConfigMap
+      name: app-config
+      fieldPath: data.DATABASE_MAX_CONNECTIONS
+    targets:
+      - select:
+          kind: Deployment
+          name: api-server
+        fieldPaths:
+          - spec.template.spec.containers.[name=api-server].env.[name=DATABASE_MAX_CONNECTIONS].value
+
+  - source:
+      kind: ConfigMap
+      name: app-config
+      fieldPath: data.REDIS_MAX_CONNECTIONS
+    targets:
+      - select:
+          kind: Deployment
+          name: api-server
+        fieldPaths:
+          - spec.template.spec.containers.[name=api-server].env.[name=REDIS_MAX_CONNECTIONS].value

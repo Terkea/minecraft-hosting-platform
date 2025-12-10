@@ -1,0 +1,153 @@
+name: DAST - Dynamic Application Security Testing
+
+on:
+  # Run on push to master (after deployment)
+  push:
+    branches: [master]
+  # Manual trigger for testing against staging
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: "Target URL to scan"
+        required: true
+        default: "http://localhost:8080"
+      scan_type:
+        description: "Scan type (baseline, full, api)"
+        required: true
+        default: "api"
+        type: choice
+        options:
+          - baseline
+          - full
+          - api
+
+env:
+  ZAP_VERSION: "2.14.0"
+
+jobs:
+  # ============================================
+  # OWASP ZAP API Scan
+  # ============================================
+  zap-api-scan:
+    name: OWASP ZAP API Scan
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.scan_type == 'api'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ZAP API Scan
+        uses: zaproxy/action-api-scan@v0.7.0
+        with:
+          target: ${{ github.event.inputs.target_url }}/api/v1/
+          rules_file_name: ".github/zap-rules.tsv"
+          cmd_options: "-a -j -l WARN"
+          fail_action: false
+
+      - name: Upload ZAP Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zap-api-report
+          path: report_html.html
+          retention-days: 30
+
+  # ============================================
+  # OWASP ZAP Baseline Scan
+  # ============================================
+  zap-baseline-scan:
+    name: OWASP ZAP Baseline Scan
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.scan_type == 'baseline'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ZAP Baseline Scan
+        uses: zaproxy/action-baseline@v0.11.0
+        with:
+          target: ${{ github.event.inputs.target_url }}
+          rules_file_name: ".github/zap-rules.tsv"
+          cmd_options: "-a -j -l WARN"
+          fail_action: false
+
+      - name: Upload ZAP Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zap-baseline-report
+          path: report_html.html
+          retention-days: 30
+
+  # ============================================
+  # OWASP ZAP Full Scan
+  # ============================================
+  zap-full-scan:
+    name: OWASP ZAP Full Scan
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.scan_type == 'full'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ZAP Full Scan
+        uses: zaproxy/action-full-scan@v0.9.0
+        with:
+          target: ${{ github.event.inputs.target_url }}
+          rules_file_name: ".github/zap-rules.tsv"
+          cmd_options: "-a -j -l WARN"
+          fail_action: false
+
+      - name: Upload ZAP Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zap-full-report
+          path: report_html.html
+          retention-days: 30
+
+  # ============================================
+  # Local Integration Test with ZAP
+  # ============================================
+  integration-dast:
+    name: Integration DAST
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    services:
+      # We could spin up the API in a container here
+      api:
+        image: node:20-slim
+        options: --health-cmd "curl -f http://localhost:8080/health || exit 1" --health-interval 10s --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build API Server
+        run: cd api-server && npm run build
+
+      - name: Start API Server
+        run: |
+          cd api-server && npm start &
+          sleep 10  # Wait for server to start
+
+      - name: Run ZAP Baseline against local API
+        uses: zaproxy/action-baseline@v0.11.0
+        with:
+          target: "http://localhost:8080"
+          rules_file_name: ".github/zap-rules.tsv"
+          cmd_options: "-a -j -l WARN"
+          fail_action: false
+        continue-on-error: true
+
+      - name: Upload Integration DAST Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-dast-report
+          path: report_html.html
+          retention-days: 14

@@ -1,0 +1,44 @@
+{
+  "name": "minecraft-hosting-platform",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Minecraft Server Hosting Platform - Monorepo",
+  "workspaces": [
+    "api-server",
+    "frontend"
+  ],
+  "scripts": {
+    "lint": "npm run lint:api && npm run lint:frontend && npm run lint:go",
+    "lint:api": "cd api-server && npm run lint",
+    "lint:frontend": "cd frontend && npm run lint",
+    "lint:go": "cd k8s/operator && golangci-lint run ./...",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,css,scss}\" --ignore-path .gitignore",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,css,scss}\" --ignore-path .gitignore",
+    "typecheck": "npm run typecheck:api && npm run typecheck:frontend",
+    "typecheck:api": "cd api-server && npm run typecheck",
+    "typecheck:frontend": "cd frontend && npm run typecheck",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7",
+    "lint-staged": "^15.2.10",
+    "prettier": "^3.4.2"
+  },
+  "lint-staged": {
+    "api-server/**/*.{ts,tsx}": [
+      "prettier --write"
+    ],
+    "frontend/**/*.{ts,tsx}": [
+      "prettier --write"
+    ],
+    "*.{js,jsx,json,md,css,scss}": [
+      "prettier --write"
+    ],
+    "k8s/operator/**/*.go": [
+      "gofmt -w"
+    ]
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

@@ -1,0 +1,235 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionWebhook
+metadata:
+  name: minecraft-security-validator
+webhooks:
+- name: minecraft-pod-security.example.com
+  clientConfig:
+    service:
+      name: minecraft-admission-webhook
+      namespace: minecraft-platform
+      path: "/validate-pods"
+  rules:
+  - operations: ["CREATE", "UPDATE"]
+    apiGroups: [""]
+    apiVersions: ["v1"]
+    resources: ["pods"]
+    namespaceSelector:
+      matchLabels:
+        name: minecraft-platform
+  admissionReviewVersions: ["v1", "v1beta1"]
+  sideEffects: None
+  failurePolicy: Fail
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minecraft-admission-webhook
+  namespace: minecraft-platform
+  labels:
+    app: minecraft-admission-webhook
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: minecraft-admission-webhook
+  template:
+    metadata:
+      labels:
+        app: minecraft-admission-webhook
+    spec:
+      serviceAccountName: minecraft-admission-webhook
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+      - name: webhook
+        image: minecraft-platform/admission-webhook:latest
+        ports:
+        - containerPort: 8443
+          name: webhook-api
+        volumeMounts:
+        - name: webhook-tls-certs
+          mountPath: /etc/webhook/certs
+          readOnly: true
+        env:
+        - name: TLS_CERT_FILE
+          value: /etc/webhook/certs/tls.crt
+        - name: TLS_PRIVATE_KEY_FILE
+          value: /etc/webhook/certs/tls.key
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8443
+            scheme: HTTPS
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8443
+            scheme: HTTPS
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: webhook-tls-certs
+        secret:
+          secretName: minecraft-admission-webhook-certs
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minecraft-admission-webhook
+  namespace: minecraft-platform
+  labels:
+    app: minecraft-admission-webhook
+spec:
+  selector:
+    app: minecraft-admission-webhook
+  ports:
+  - port: 443
+    targetPort: 8443
+    name: webhook-api
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: minecraft-admission-webhook
+  namespace: minecraft-platform
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: minecraft-admission-webhook
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets"]
+  verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: minecraft-admission-webhook
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: minecraft-admission-webhook
+subjects:
+- kind: ServiceAccount
+  name: minecraft-admission-webhook
+  namespace: minecraft-platform
+
+---
+# Mutation webhook for security defaults
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingAdmissionWebhook
+metadata:
+  name: minecraft-security-mutator
+webhooks:
+- name: minecraft-pod-defaults.example.com
+  clientConfig:
+    service:
+      name: minecraft-admission-webhook
+      namespace: minecraft-platform
+      path: "/mutate-pods"
+  rules:
+  - operations: ["CREATE"]
+    apiGroups: [""]
+    apiVersions: ["v1"]
+    resources: ["pods"]
+    namespaceSelector:
+      matchLabels:
+        name: minecraft-platform
+  admissionReviewVersions: ["v1", "v1beta1"]
+  sideEffects: None
+  failurePolicy: Fail
+
+---
+# Policy for Open Policy Agent Gatekeeper
+apiVersion: templates.gatekeeper.sh/v1beta1
+kind: ConstraintTemplate
+metadata:
+  name: minecraftsecurityrequirements
+spec:
+  crd:
+    spec:
+      names:
+        kind: MinecraftSecurityRequirements
+      validation:
+        properties:
+          allowedImages:
+            type: array
+            items:
+              type: string
+          maxCpuLimit:
+            type: string
+          maxMemoryLimit:
+            type: string
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package minecraftsecurityrequirements
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          not starts_with(container.image, input.parameters.allowedImages[_])
+          msg := sprintf("Container image '%v' not from allowed registry", [container.image])
+        }
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          cpu_limit := container.resources.limits.cpu
+          cpu_numeric := to_number(trim_suffix(cpu_limit, "m"))
+          max_cpu := to_number(trim_suffix(input.parameters.maxCpuLimit, "m"))
+          cpu_numeric > max_cpu
+          msg := sprintf("Container CPU limit '%v' exceeds maximum '%v'", [cpu_limit, input.parameters.maxCpuLimit])
+        }
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          memory_limit := container.resources.limits.memory
+          memory_bytes := units.parse_bytes(memory_limit)
+          max_memory_bytes := units.parse_bytes(input.parameters.maxMemoryLimit)
+          memory_bytes > max_memory_bytes
+          msg := sprintf("Container memory limit '%v' exceeds maximum '%v'", [memory_limit, input.parameters.maxMemoryLimit])
+        }
+
+---
+apiVersion: config.gatekeeper.sh/v1alpha1
+kind: MinecraftSecurityRequirements
+metadata:
+  name: minecraft-security-policy
+spec:
+  match:
+    - apiGroups: [""]
+      kinds: ["Pod"]
+      namespaces: ["minecraft-platform"]
+  parameters:
+    allowedImages:
+      - "minecraft-platform/"
+      - "gcr.io/minecraft-platform/"
+      - "registry.k8s.io/"
+    maxCpuLimit: "2000m"
+    maxMemoryLimit: "8Gi"

@@ -1,0 +1,82 @@
+# Gitleaks configuration for secret detection
+# https://github.com/gitleaks/gitleaks
+
+title = "Minecraft Hosting Platform Secret Detection"
+
+[extend]
+# Use default gitleaks rules
+useDefault = true
+
+# Additional custom rules
+[[rules]]
+id = "kubernetes-secret"
+description = "Kubernetes Secret"
+regex = '''(?i)(kubernetes|k8s).*secret.*[=:]\s*['\"]?[a-zA-Z0-9+/]{20,}[=]*['\"]?'''
+tags = ["kubernetes", "secret"]
+
+[[rules]]
+id = "minecraft-rcon-password"
+description = "Minecraft RCON Password"
+regex = '''(?i)rcon.*password.*[=:]\s*['\"]?[^\s'"]{8,}['\"]?'''
+tags = ["minecraft", "rcon"]
+
+[[rules]]
+id = "database-connection-string"
+description = "Database Connection String"
+regex = '''(?i)(postgres|mysql|mongodb|cockroach)://[^\s'"]+'''
+tags = ["database", "connection"]
+
+[[rules]]
+id = "hardcoded-password"
+description = "Hardcoded Password"
+regex = '''(?i)password\s*[=:]\s*['\"][^'"]{8,}['\"]'''
+tags = ["password", "hardcoded"]
+entropy = 3.5
+
+[[rules]]
+id = "jwt-secret"
+description = "JWT Secret"
+regex = '''(?i)(jwt|token).*secret.*[=:]\s*['\"]?[a-zA-Z0-9+/]{20,}[=]*['\"]?'''
+tags = ["jwt", "secret"]
+
+[[rules]]
+id = "api-key"
+description = "Generic API Key"
+regex = '''(?i)(api[_-]?key|apikey)\s*[=:]\s*['\"]?[a-zA-Z0-9]{20,}['\"]?'''
+tags = ["api", "key"]
+entropy = 3.5
+
+# Allowed patterns (false positives)
+[allowlist]
+description = "Global Allowlist"
+paths = [
+    '''node_modules''',
+    '''vendor''',
+    '''\.git''',
+    '''dist''',
+    '''bin''',
+    '''_archive''',
+    '''\.gitleaks\.toml''',
+]
+regexes = [
+    # Example/placeholder passwords
+    '''password.*example''',
+    '''password.*placeholder''',
+    '''password.*test''',
+    '''password.*demo''',
+    # Default RCON password used in dev
+    '''rcon.*minecraft''',
+    # Go mod checksums
+    '''h1:[a-zA-Z0-9+/=]+''',
+]
+
+# File-specific allowlists
+[[allowlist.commits]]
+description = "Ignore test fixtures"
+paths = [
+    '''.*_test\.go''',
+    '''.*\.test\.ts''',
+    '''.*\.spec\.ts''',
+    '''testdata/''',
+    '''fixtures/''',
+]

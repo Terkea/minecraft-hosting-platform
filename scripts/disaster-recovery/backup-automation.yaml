@@ -1,0 +1,416 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backup-config
+  namespace: minecraft-platform
+data:
+  backup-policy.yaml: |
+    backup_policies:
+      database:
+        schedule: "0 */6 * * *"  # Every 6 hours
+        retention:
+          hourly: 24    # Keep 24 hourly backups (1 day)
+          daily: 30     # Keep 30 daily backups (1 month)
+          weekly: 12    # Keep 12 weekly backups (3 months)
+          monthly: 12   # Keep 12 monthly backups (1 year)
+        encryption: true
+        compression: true
+        verification: true
+
+      persistent_volumes:
+        schedule: "0 2 * * *"   # Daily at 2 AM
+        retention:
+          daily: 7      # Keep 7 daily backups
+          weekly: 4     # Keep 4 weekly backups
+          monthly: 3    # Keep 3 monthly backups
+        snapshot_class: "csi-hostpath-snapclass"
+
+      application_config:
+        schedule: "0 1 * * 0"   # Weekly on Sunday at 1 AM
+        retention:
+          weekly: 8     # Keep 8 weekly backups (2 months)
+          monthly: 6    # Keep 6 monthly backups
+
+      secrets:
+        schedule: "0 3 * * 0"   # Weekly on Sunday at 3 AM
+        retention:
+          weekly: 4     # Keep 4 weekly backups
+        encryption: true
+        secure_storage: true
+
+  storage-locations.yaml: |
+    storage_locations:
+      primary:
+        type: "s3"
+        bucket: "minecraft-platform-backups-primary"
+        region: "us-west-2"
+        encryption: "AES256"
+        versioning: true
+
+      secondary:
+        type: "s3"
+        bucket: "minecraft-platform-backups-secondary"
+        region: "us-east-1"
+        encryption: "AES256"
+        versioning: true
+
+      offsite:
+        type: "gcs"
+        bucket: "minecraft-platform-backups-offsite"
+        project: "minecraft-platform-dr"
+        encryption: "GOOGLE_MANAGED"
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: database-backup
+  namespace: minecraft-platform
+  labels:
+    app: database-backup
+spec:
+  schedule: "0 */6 * * *"  # Every 6 hours
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 3
+  successfulJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: database-backup
+        spec:
+          serviceAccountName: backup-service
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            fsGroup: 1000
+          containers:
+          - name: database-backup
+            image: postgres:15-alpine
+            command:
+            - /bin/sh
+            - -c
+            - |
+              # Set backup timestamp
+              BACKUP_TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+              BACKUP_NAME="database_backup_${BACKUP_TIMESTAMP}"
+
+              echo "Starting database backup: $BACKUP_NAME"
+
+              # Create database dump with custom format for faster restoration
+              pg_dump "$DATABASE_URL" \
+                --format=custom \
+                --compress=9 \
+                --verbose \
+                --no-owner \
+                --no-privileges \
+                --exclude-table-data='audit_logs_archive' \
+                > "/tmp/${BACKUP_NAME}.dump"
+
+              # Verify backup integrity
+              pg_restore --list "/tmp/${BACKUP_NAME}.dump" > "/tmp/${BACKUP_NAME}.list"
+
+              if [ $? -ne 0 ]; then
+                echo "Backup verification failed!"
+                exit 1
+              fi
+
+              # Encrypt backup
+              gpg --symmetric --cipher-algo AES256 --compress-algo 1 \
+                --passphrase "$BACKUP_ENCRYPTION_KEY" \
+                "/tmp/${BACKUP_NAME}.dump"
+
+              # Upload to primary storage
+              aws s3 cp "/tmp/${BACKUP_NAME}.dump.gpg" \
+                "s3://minecraft-platform-backups-primary/database/${BACKUP_NAME}.dump.gpg" \
+                --server-side-encryption AES256
+
+              # Upload to secondary storage (cross-region)
+              aws s3 cp "/tmp/${BACKUP_NAME}.dump.gpg" \
+                "s3://minecraft-platform-backups-secondary/database/${BACKUP_NAME}.dump.gpg" \
+                --server-side-encryption AES256 \
+                --region us-east-1
+
+              # Upload to offsite storage (different cloud provider)
+              gsutil -m cp "/tmp/${BACKUP_NAME}.dump.gpg" \
+                "gs://minecraft-platform-backups-offsite/database/${BACKUP_NAME}.dump.gpg"
+
+              # Create backup metadata
+              cat > "/tmp/${BACKUP_NAME}.metadata.json" << EOF
+              {
+                "timestamp": "$BACKUP_TIMESTAMP",
+                "database_size": $(stat -c%s "/tmp/${BACKUP_NAME}.dump"),
+                "compressed_size": $(stat -c%s "/tmp/${BACKUP_NAME}.dump.gpg"),
+                "tables_count": $(grep -c "TABLE" "/tmp/${BACKUP_NAME}.list"),
+                "checksum": "$(sha256sum "/tmp/${BACKUP_NAME}.dump.gpg" | cut -d' ' -f1)",
+                "retention_policy": "hourly=24,daily=30,weekly=12,monthly=12"
+              }
+              EOF
+
+              # Upload metadata
+              aws s3 cp "/tmp/${BACKUP_NAME}.metadata.json" \
+                "s3://minecraft-platform-backups-primary/database/${BACKUP_NAME}.metadata.json"
+
+              # Send success notification
+              curl -X POST "$BACKUP_WEBHOOK_URL" \
+                -H 'Content-Type: application/json' \
+                -d "{\"type\":\"database_backup_success\",\"backup_name\":\"$BACKUP_NAME\",\"timestamp\":\"$BACKUP_TIMESTAMP\"}"
+
+              echo "Database backup completed successfully: $BACKUP_NAME"
+            env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: database-credentials
+                  key: connection-string
+            - name: BACKUP_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: backup-encryption-keys
+                  key: database-key
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws-credentials
+                  key: access-key-id
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws-credentials
+                  key: secret-access-key
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: "/etc/gcp/service-account.json"
+            - name: BACKUP_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: notification-secrets
+                  key: backup-webhook
+            volumeMounts:
+            - name: gcp-service-account
+              mountPath: /etc/gcp
+              readOnly: true
+            - name: temp-storage
+              mountPath: /tmp
+            resources:
+              requests:
+                cpu: 500m
+                memory: 1Gi
+              limits:
+                cpu: 2000m
+                memory: 4Gi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                - ALL
+              readOnlyRootFilesystem: true
+          volumes:
+          - name: gcp-service-account
+            secret:
+              secretName: gcp-service-account
+          - name: temp-storage
+            emptyDir:
+              sizeLimit: 10Gi
+          restartPolicy: OnFailure
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: volume-snapshot-backup
+  namespace: minecraft-platform
+spec:
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: backup-service
+          containers:
+          - name: volume-snapshot
+            image: kubernetes/kubectl:latest
+            command:
+            - /bin/sh
+            - -c
+            - |
+              # Get all PVCs in minecraft-platform namespace
+              kubectl get pvc -n minecraft-platform -o name > /tmp/pvcs.list
+
+              SNAPSHOT_TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+
+              while read pvc; do
+                PVC_NAME=$(echo $pvc | cut -d'/' -f2)
+                SNAPSHOT_NAME="${PVC_NAME}-snapshot-${SNAPSHOT_TIMESTAMP}"
+
+                echo "Creating snapshot for PVC: $PVC_NAME"
+
+                # Create VolumeSnapshot
+                cat << EOF | kubectl apply -f -
+              apiVersion: snapshot.storage.k8s.io/v1
+              kind: VolumeSnapshot
+              metadata:
+                name: $SNAPSHOT_NAME
+                namespace: minecraft-platform
+                labels:
+                  backup-timestamp: "$SNAPSHOT_TIMESTAMP"
+                  source-pvc: "$PVC_NAME"
+              spec:
+                source:
+                  persistentVolumeClaimName: $PVC_NAME
+                volumeSnapshotClassName: csi-hostpath-snapclass
+              EOF
+
+                # Wait for snapshot to be ready
+                kubectl wait --for=condition=ReadyToUse \
+                  volumesnapshot/$SNAPSHOT_NAME \
+                  -n minecraft-platform \
+                  --timeout=300s
+
+                if [ $? -eq 0 ]; then
+                  echo "Snapshot created successfully: $SNAPSHOT_NAME"
+                else
+                  echo "Failed to create snapshot: $SNAPSHOT_NAME"
+                fi
+              done < /tmp/pvcs.list
+
+              # Clean up old snapshots (keep only last 7 days)
+              OLD_SNAPSHOTS=$(kubectl get volumesnapshots -n minecraft-platform \
+                --sort-by=.metadata.creationTimestamp \
+                -o json | jq -r '.items[] | select(.metadata.creationTimestamp < (now - 604800 | todate)) | .metadata.name')
+
+              for snapshot in $OLD_SNAPSHOTS; do
+                echo "Deleting old snapshot: $snapshot"
+                kubectl delete volumesnapshot $snapshot -n minecraft-platform
+              done
+
+              # Send notification
+              curl -X POST "$BACKUP_WEBHOOK_URL" \
+                -H 'Content-Type: application/json' \
+                -d "{\"type\":\"volume_backup_success\",\"timestamp\":\"$SNAPSHOT_TIMESTAMP\"}"
+            env:
+            - name: BACKUP_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: notification-secrets
+                  key: backup-webhook
+            resources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+              limits:
+                cpu: 500m
+                memory: 512Mi
+          restartPolicy: OnFailure
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: backup-service
+  namespace: minecraft-platform
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: backup-service
+rules:
+- apiGroups: [""]
+  resources: ["persistentvolumeclaims", "persistentvolumes", "secrets", "configmaps"]
+  verbs: ["get", "list", "create", "update", "patch"]
+- apiGroups: ["snapshot.storage.k8s.io"]
+  resources: ["volumesnapshots", "volumesnapshotcontents"]
+  verbs: ["get", "list", "create", "delete"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "statefulsets"]
+  verbs: ["get", "list", "patch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: backup-service
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: backup-service
+subjects:
+- kind: ServiceAccount
+  name: backup-service
+  namespace: minecraft-platform
+
+---
+# Backup retention management
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: backup-retention-manager
+  namespace: minecraft-platform
+spec:
+  schedule: "0 5 * * 0"  # Weekly on Sunday at 5 AM
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: backup-service
+          containers:
+          - name: retention-manager
+            image: amazon/aws-cli:latest
+            command:
+            - /bin/sh
+            - -c
+            - |
+              # Database backup retention
+              echo "Managing database backup retention..."
+
+              # Get list of database backups
+              aws s3 ls s3://minecraft-platform-backups-primary/database/ \
+                --recursive > /tmp/database-backups.list
+
+              # Parse backup dates and apply retention policy
+              cat /tmp/database-backups.list | while read line; do
+                BACKUP_DATE=$(echo $line | awk '{print $1}')
+                BACKUP_FILE=$(echo $line | awk '{print $4}')
+
+                # Calculate age in days
+                BACKUP_AGE=$(( ($(date +%s) - $(date -d "$BACKUP_DATE" +%s)) / 86400 ))
+
+                # Apply retention rules
+                if [[ $BACKUP_FILE == *"_00"* ]] || [[ $BACKUP_FILE == *"_06"* ]] || [[ $BACKUP_FILE == *"_12"* ]] || [[ $BACKUP_FILE == *"_18"* ]]; then
+                  # 6-hourly backups - keep for 1 day
+                  if [ $BACKUP_AGE -gt 1 ]; then
+                    echo "Deleting old 6-hourly backup: $BACKUP_FILE"
+                    aws s3 rm "s3://minecraft-platform-backups-primary/$BACKUP_FILE"
+                  fi
+                elif [[ $BACKUP_FILE == *"_02"* ]]; then
+                  # Daily backups (2 AM) - keep for 30 days
+                  if [ $BACKUP_AGE -gt 30 ]; then
+                    echo "Deleting old daily backup: $BACKUP_FILE"
+                    aws s3 rm "s3://minecraft-platform-backups-primary/$BACKUP_FILE"
+                  fi
+                fi
+              done
+
+              # Volume snapshot retention is handled by the snapshot creation job
+
+              echo "Backup retention management completed"
+            env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws-credentials
+                  key: access-key-id
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws-credentials
+                  key: secret-access-key
+            resources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+              limits:
+                cpu: 500m
+                memory: 512Mi
+          restartPolicy: OnFailure

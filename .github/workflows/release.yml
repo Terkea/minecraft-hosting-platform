@@ -1,0 +1,245 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (e.g., v1.0.0)"
+        required: true
+        type: string
+
+env:
+  REGISTRY: ghcr.io
+  NODE_VERSION: "20"
+  GO_VERSION: "1.21"
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+
+jobs:
+  # ============================================
+  # Build and Test
+  # ============================================
+  build:
+    name: Build All Components
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: k8s/operator/go.sum
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Build API Server
+        run: cd api-server && npm run build
+
+      - name: Build Frontend
+        run: cd frontend && npm run build
+
+      - name: Build Operator (Linux)
+        run: |
+          cd k8s/operator
+          GOOS=linux GOARCH=amd64 go build -ldflags="-X main.version=${{ steps.version.outputs.version }}" -o bin/operator-linux-amd64 .
+          GOOS=linux GOARCH=arm64 go build -ldflags="-X main.version=${{ steps.version.outputs.version }}" -o bin/operator-linux-arm64 .
+
+      - name: Upload API artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-server-dist
+          path: api-server/dist
+
+      - name: Upload Frontend artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+
+      - name: Upload Operator binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: operator-binaries
+          path: k8s/operator/bin/operator-*
+
+  # ============================================
+  # Docker Images
+  # ============================================
+  docker:
+    name: Build & Push Docker Images
+    runs-on: ubuntu-latest
+    needs: build
+    strategy:
+      matrix:
+        component:
+          - name: api-server
+            context: ./api-server
+            artifact: api-server-dist
+          - name: frontend
+            context: ./frontend
+            artifact: frontend-dist
+          - name: operator
+            context: ./k8s/operator
+            artifact: operator-binaries
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.component.artifact }}
+          path: ${{ matrix.component.context }}/${{ matrix.component.artifact == 'operator-binaries' && 'bin' || 'dist' }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.component.name }}
+          tags: |
+            type=semver,pattern={{version}},value=${{ needs.build.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.build.outputs.version }}
+            type=semver,pattern={{major}},value=${{ needs.build.outputs.version }}
+            type=sha
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.component.context }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ============================================
+  # Helm Chart
+  # ============================================
+  helm:
+    name: Package Helm Chart
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+
+      - name: Update Chart version
+        run: |
+          VERSION=${{ needs.build.outputs.version }}
+          VERSION=${VERSION#v}  # Remove 'v' prefix
+          sed -i "s/^version:.*/version: ${VERSION}/" k8s/charts/minecraft-platform/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"${VERSION}\"/" k8s/charts/minecraft-platform/Chart.yaml
+
+      - name: Package Helm chart
+        run: |
+          helm package k8s/charts/minecraft-platform -d .helm-packages
+
+      - name: Upload Helm chart
+        uses: actions/upload-artifact@v4
+        with:
+          name: helm-chart
+          path: .helm-packages/*.tgz
+
+  # ============================================
+  # GitHub Release
+  # ============================================
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build, docker, helm]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Get commits since last tag
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            CHANGELOG=$(git log --pretty=format:"- %s (%h)" $PREV_TAG..HEAD)
+          else
+            CHANGELOG=$(git log --pretty=format:"- %s (%h)" HEAD~10..HEAD)
+          fi
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.build.outputs.version }}
+          name: Release ${{ needs.build.outputs.version }}
+          body: |
+            ## What's Changed
+            ${{ steps.changelog.outputs.changelog }}
+
+            ## Docker Images
+            - `ghcr.io/${{ github.repository }}/api-server:${{ needs.build.outputs.version }}`
+            - `ghcr.io/${{ github.repository }}/frontend:${{ needs.build.outputs.version }}`
+            - `ghcr.io/${{ github.repository }}/operator:${{ needs.build.outputs.version }}`
+
+            ## Installation
+            ```bash
+            # Using Helm
+            helm upgrade --install minecraft-platform oci://ghcr.io/${{ github.repository }}/charts/minecraft-platform --version ${{ needs.build.outputs.version }}
+            ```
+          files: |
+            artifacts/operator-binaries/*
+            artifacts/helm-chart/*.tgz
+          draft: false
+          prerelease: ${{ contains(needs.build.outputs.version, '-') }}

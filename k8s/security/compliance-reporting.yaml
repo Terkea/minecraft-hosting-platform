@@ -1,0 +1,527 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: compliance-policies
+  namespace: minecraft-platform
+data:
+  # GDPR Compliance Policy
+  gdpr-policy.yaml: |
+    policy: "GDPR Compliance"
+    version: "1.0"
+    rules:
+      data_retention:
+        user_data: "2 years"
+        logs: "90 days"
+        backups: "7 years"
+        audit_logs: "6 years"
+
+      data_encryption:
+        at_rest: "required"
+        in_transit: "required"
+        key_rotation: "90 days"
+
+      user_rights:
+        data_portability: "enabled"
+        right_to_erasure: "enabled"
+        data_rectification: "enabled"
+        access_request: "30 days"
+
+  # SOC2 Compliance Policy
+  soc2-policy.yaml: |
+    policy: "SOC2 Type II"
+    version: "1.0"
+    controls:
+      security:
+        - "CC6.1: Logical Access - Entities implement logical access security software"
+        - "CC6.2: Multi-factor Authentication"
+        - "CC6.3: Access Removal and Modification"
+
+      availability:
+        - "CC7.1: System Monitoring"
+        - "CC7.2: System Recovery"
+        - "CC7.4: Data Backup and Recovery"
+
+      processing_integrity:
+        - "CC8.1: Data Input Controls"
+        - "CC8.2: Data Processing Controls"
+
+      confidentiality:
+        - "CC9.1: Confidential Information Protection"
+
+  # PCI DSS Compliance (for payment processing)
+  pci-dss-policy.yaml: |
+    policy: "PCI DSS"
+    version: "4.0"
+    requirements:
+      network_security:
+        - "1.1: Network Security Controls"
+        - "2.1: Default Passwords and Parameters"
+        - "4.1: Cryptography for Card Data"
+
+      access_control:
+        - "7.1: User Access Management"
+        - "8.1: User Identity Management"
+        - "9.1: Physical Access Controls"
+
+      monitoring:
+        - "10.1: Logging and Monitoring"
+        - "11.1: Security Testing"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: compliance-controller
+  namespace: minecraft-platform
+  labels:
+    app: compliance-controller
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: compliance-controller
+  template:
+    metadata:
+      labels:
+        app: compliance-controller
+    spec:
+      serviceAccountName: compliance-controller
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+      - name: controller
+        image: minecraft-platform/compliance-controller:latest
+        ports:
+        - containerPort: 8080
+          name: http
+        - containerPort: 8443
+          name: https
+        volumeMounts:
+        - name: compliance-policies
+          mountPath: /etc/compliance
+        - name: tls-certs
+          mountPath: /etc/tls
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: database-credentials
+              key: connection-string
+        - name: COMPLIANCE_WEBHOOK_URL
+          valueFrom:
+            secretKeyRef:
+              name: notification-secrets
+              key: compliance-webhook
+        resources:
+          requests:
+            cpu: 200m
+            memory: 512Mi
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: compliance-policies
+        configMap:
+          name: compliance-policies
+      - name: tls-certs
+        secret:
+          secretName: compliance-controller-tls
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: compliance-controller
+  namespace: minecraft-platform
+  labels:
+    app: compliance-controller
+spec:
+  selector:
+    app: compliance-controller
+  ports:
+  - port: 80
+    targetPort: 8080
+    name: http
+  - port: 443
+    targetPort: 8443
+    name: https
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: compliance-controller
+  namespace: minecraft-platform
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: compliance-controller
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services", "configmaps", "secrets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets", "statefulsets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["networkpolicies"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["policy"]
+  resources: ["podsecuritypolicies"]
+  verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: compliance-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: compliance-controller
+subjects:
+- kind: ServiceAccount
+  name: compliance-controller
+  namespace: minecraft-platform
+
+---
+# Automated compliance reporting
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: compliance-reporter
+  namespace: minecraft-platform
+spec:
+  schedule: "0 0 * * 0"  # Weekly on Sunday at midnight
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: compliance-reporter
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+          containers:
+          - name: reporter
+            image: minecraft-platform/compliance-reporter:latest
+            command:
+            - /bin/sh
+            - -c
+            - |
+              # Generate compliance reports
+              compliance-reporter generate \
+                --policies /etc/compliance \
+                --namespace minecraft-platform \
+                --output-format json \
+                --output-file /tmp/compliance-report.json
+
+              # Check compliance status
+              compliance_score=$(compliance-reporter score /tmp/compliance-report.json)
+
+              echo "Compliance Score: $compliance_score%"
+
+              # Send weekly compliance report
+              curl -X POST "$COMPLIANCE_WEBHOOK_URL" \
+                -H 'Content-Type: application/json' \
+                -d @/tmp/compliance-report.json
+
+              # Alert if compliance score is below threshold
+              if [ "$compliance_score" -lt 95 ]; then
+                curl -X POST "$SLACK_WEBHOOK_URL" \
+                  -H 'Content-type: application/json' \
+                  --data "{\"text\":\"⚠️ Compliance Score Alert: $compliance_score% - Below 95% threshold\"}"
+              fi
+
+              # Generate executive summary
+              compliance-reporter summary \
+                --input /tmp/compliance-report.json \
+                --template executive \
+                --output /tmp/executive-summary.pdf
+
+              # Upload to secure document storage
+              aws s3 cp /tmp/executive-summary.pdf \
+                s3://minecraft-compliance-reports/$(date +%Y/%m)/executive-summary-$(date +%Y%m%d).pdf \
+                --server-side-encryption AES256
+            env:
+            - name: COMPLIANCE_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: notification-secrets
+                  key: compliance-webhook
+            - name: SLACK_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: notification-secrets
+                  key: slack-webhook
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws-credentials
+                  key: access-key-id
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws-credentials
+                  key: secret-access-key
+            volumeMounts:
+            - name: compliance-policies
+              mountPath: /etc/compliance
+            - name: temp-storage
+              mountPath: /tmp
+            resources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+              limits:
+                cpu: 500m
+                memory: 1Gi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                - ALL
+              readOnlyRootFilesystem: true
+          volumes:
+          - name: compliance-policies
+            configMap:
+              name: compliance-policies
+          - name: temp-storage
+            emptyDir: {}
+          restartPolicy: OnFailure
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: compliance-reporter
+  namespace: minecraft-platform
+
+---
+# Data retention policy enforcement
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: data-retention-enforcer
+  namespace: minecraft-platform
+spec:
+  schedule: "0 4 * * *"  # Daily at 4 AM
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: data-retention-enforcer
+          containers:
+          - name: enforcer
+            image: minecraft-platform/data-retention-enforcer:latest
+            command:
+            - /bin/sh
+            - -c
+            - |
+              # Enforce log retention policies
+              echo "Enforcing log retention policies..."
+
+              # Delete logs older than 90 days
+              kubectl delete pods -l app=elasticsearch -n logging --field-selector=status.phase=Succeeded --dry-run=client
+
+              # Clean up old backup snapshots (keep last 30 days)
+              retention-enforcer cleanup-backups \
+                --namespace minecraft-platform \
+                --retention-days 30
+
+              # Archive old user data (2+ years)
+              retention-enforcer archive-user-data \
+                --namespace minecraft-platform \
+                --archive-age "2 years"
+
+              # Clean up old audit logs (keep 6 years)
+              retention-enforcer cleanup-audit-logs \
+                --namespace minecraft-platform \
+                --retention-years 6
+
+              # Generate retention compliance report
+              retention-enforcer report \
+                --output /tmp/retention-report.json
+
+              # Send compliance status
+              curl -X POST "$COMPLIANCE_WEBHOOK_URL" \
+                -H 'Content-Type: application/json' \
+                -d @/tmp/retention-report.json
+            env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: database-credentials
+                  key: connection-string
+            - name: COMPLIANCE_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: notification-secrets
+                  key: compliance-webhook
+            resources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+              limits:
+                cpu: 500m
+                memory: 1Gi
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 1000
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                - ALL
+              readOnlyRootFilesystem: true
+          restartPolicy: OnFailure
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: data-retention-enforcer
+  namespace: minecraft-platform
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: data-retention-enforcer
+rules:
+- apiGroups: [""]
+  resources: ["pods", "persistentvolumeclaims"]
+  verbs: ["get", "list", "delete"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "statefulsets"]
+  verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: data-retention-enforcer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: data-retention-enforcer
+subjects:
+- kind: ServiceAccount
+  name: data-retention-enforcer
+  namespace: minecraft-platform
+
+---
+# Privacy impact assessment automation
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: privacy-assessment-templates
+  namespace: minecraft-platform
+data:
+  pia-template.yaml: |
+    assessment:
+      name: "Minecraft Platform Privacy Impact Assessment"
+      version: "1.0"
+      date: "2024-01-01"
+
+    data_categories:
+      personal_data:
+        - "User account information (username, email)"
+        - "Player statistics and game progress"
+        - "Server configuration and preferences"
+        - "Payment and billing information"
+        - "Support tickets and communication logs"
+
+      sensitive_data:
+        - "IP addresses and location data"
+        - "Chat logs and player communications"
+        - "Device information and browser fingerprints"
+
+    processing_purposes:
+      - "Service provision and user account management"
+      - "Game server hosting and management"
+      - "Payment processing and billing"
+      - "Customer support and communication"
+      - "Platform analytics and improvement"
+
+    data_flows:
+      collection:
+        - "User registration forms"
+        - "Game client telemetry"
+        - "Payment processor integration"
+        - "Support system interactions"
+
+      processing:
+        - "Account management system"
+        - "Game server infrastructure"
+        - "Analytics and monitoring systems"
+        - "Backup and disaster recovery"
+
+      storage:
+        - "Primary database (encrypted at rest)"
+        - "Log aggregation systems (90-day retention)"
+        - "Backup systems (encrypted, geographically distributed)"
+
+      sharing:
+        - "Payment processors (for billing)"
+        - "Cloud service providers (for hosting)"
+        - "Analytics services (anonymized data only)"
+
+    risk_assessment:
+      high_risk:
+        - "Unauthorized access to personal data"
+        - "Data breach from external attack"
+        - "Insider threat from privileged users"
+
+      medium_risk:
+        - "Accidental data disclosure"
+        - "Third-party processor security incident"
+        - "Data retention policy violations"
+
+      low_risk:
+        - "Service availability disruption"
+        - "Performance degradation"
+
+    mitigation_measures:
+      technical:
+        - "End-to-end encryption for data in transit"
+        - "AES-256 encryption for data at rest"
+        - "Zero-trust network architecture"
+        - "Multi-factor authentication requirement"
+        - "Role-based access controls"
+        - "Automated vulnerability scanning"
+        - "Intrusion detection and prevention"
+
+      organizational:
+        - "Privacy by design principles"
+        - "Regular security awareness training"
+        - "Data protection impact assessments"
+        - "Incident response procedures"
+        - "Third-party security assessments"
+        - "Regular compliance audits"
+
+      legal:
+        - "Privacy policy and terms of service"
+        - "Data processing agreements with processors"
+        - "User consent management system"
+        - "Data subject rights fulfillment procedures"

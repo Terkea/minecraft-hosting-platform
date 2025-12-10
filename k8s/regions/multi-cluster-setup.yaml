@@ -1,0 +1,449 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: multi-region-config
+  namespace: minecraft-platform
+data:
+  regions.yaml: |
+    # Multi-region deployment configuration for Minecraft platform
+    regions:
+      # Primary region (US West)
+      us-west-2:
+        name: "us-west-2"
+        displayName: "US West (Oregon)"
+        primary: true
+        clusters:
+          - name: "minecraft-platform-usw2-01"
+            endpoint: "https://minecraft-usw2-01.example.com"
+            context: "minecraft-platform-usw2"
+        services:
+          api: true
+          database: true
+          minecraft_servers: true
+          monitoring: true
+          logging: true
+        capacity:
+          max_servers: 5000
+          max_players: 50000
+        network:
+          vpc_cidr: "10.0.0.0/16"
+          availability_zones: ["us-west-2a", "us-west-2b", "us-west-2c"]
+
+      # Secondary region (US East)
+      us-east-1:
+        name: "us-east-1"
+        displayName: "US East (Virginia)"
+        primary: false
+        clusters:
+          - name: "minecraft-platform-use1-01"
+            endpoint: "https://minecraft-use1-01.example.com"
+            context: "minecraft-platform-use1"
+        services:
+          api: true
+          database: true  # Read replica
+          minecraft_servers: true
+          monitoring: true
+          logging: false  # Centralized in primary
+        capacity:
+          max_servers: 3000
+          max_players: 30000
+        network:
+          vpc_cidr: "10.1.0.0/16"
+          availability_zones: ["us-east-1a", "us-east-1b", "us-east-1c"]
+
+      # European region
+      eu-west-1:
+        name: "eu-west-1"
+        displayName: "Europe (Ireland)"
+        primary: false
+        clusters:
+          - name: "minecraft-platform-euw1-01"
+            endpoint: "https://minecraft-euw1-01.example.com"
+            context: "minecraft-platform-euw1"
+        services:
+          api: true
+          database: true  # Read replica
+          minecraft_servers: true
+          monitoring: false  # Regional monitoring only
+          logging: false
+        capacity:
+          max_servers: 2000
+          max_players: 20000
+        network:
+          vpc_cidr: "10.2.0.0/16"
+          availability_zones: ["eu-west-1a", "eu-west-1b", "eu-west-1c"]
+
+      # Asia Pacific region
+      ap-southeast-1:
+        name: "ap-southeast-1"
+        displayName: "Asia Pacific (Singapore)"
+        primary: false
+        clusters:
+          - name: "minecraft-platform-apse1-01"
+            endpoint: "https://minecraft-apse1-01.example.com"
+            context: "minecraft-platform-apse1"
+        services:
+          api: true
+          database: true  # Read replica
+          minecraft_servers: true
+          monitoring: false
+          logging: false
+        capacity:
+          max_servers: 2000
+          max_players: 20000
+        network:
+          vpc_cidr: "10.3.0.0/16"
+          availability_zones: ["ap-southeast-1a", "ap-southeast-1b", "ap-southeast-1c"]
+
+    # Cross-region networking
+    networking:
+      # VPC peering between regions
+      vpc_peering:
+        - from: "us-west-2"
+          to: "us-east-1"
+          cidr_blocks: ["10.0.0.0/16", "10.1.0.0/16"]
+        - from: "us-west-2"
+          to: "eu-west-1"
+          cidr_blocks: ["10.0.0.0/16", "10.2.0.0/16"]
+        - from: "us-west-2"
+          to: "ap-southeast-1"
+          cidr_blocks: ["10.0.0.0/16", "10.3.0.0/16"]
+
+      # Global load balancing
+      global_load_balancer:
+        enabled: true
+        provider: "cloudflare"  # or "aws_global_accelerator"
+        health_check_interval: 30
+        failover_threshold: 3
+        geographic_routing: true
+
+      # Service mesh for cross-region communication
+      service_mesh:
+        enabled: true
+        provider: "istio"
+        cross_region_discovery: true
+        traffic_policy: "least_latency"
+
+    # Data replication strategy
+    data_replication:
+      database:
+        primary: "us-west-2"
+        replicas:
+          - region: "us-east-1"
+            type: "read_replica"
+            sync_mode: "async"
+          - region: "eu-west-1"
+            type: "read_replica"
+            sync_mode: "async"
+          - region: "ap-southeast-1"
+            type: "read_replica"
+            sync_mode: "async"
+
+      user_data:
+        strategy: "active_active"
+        conflict_resolution: "last_write_wins"
+        sync_interval: "5m"
+
+      minecraft_worlds:
+        strategy: "regional_primary"
+        backup_regions: 2
+        sync_interval: "1h"
+
+    # Failover and disaster recovery
+    disaster_recovery:
+      rto: "15m"  # Recovery Time Objective
+      rpo: "5m"   # Recovery Point Objective
+
+      failover_scenarios:
+        - name: "primary_region_down"
+          trigger: "us-west-2 unavailable"
+          actions:
+            - promote: "us-east-1"
+            - redirect_traffic: true
+            - notify_operations: true
+
+        - name: "database_primary_failure"
+          trigger: "primary database unavailable"
+          actions:
+            - promote_replica: "us-east-1"
+            - update_dns: true
+            - verify_replication: true
+
+      health_checks:
+        - name: "api_health"
+          endpoint: "/health"
+          interval: "10s"
+          timeout: "5s"
+          regions: ["all"]
+
+        - name: "database_health"
+          type: "database_connection"
+          interval: "30s"
+          timeout: "10s"
+          regions: ["primary", "replicas"]
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: minecraft-platform-us-west-2
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/minecraft-platform/infrastructure
+    targetRevision: main
+    path: k8s/environments/production
+    helm:
+      parameters:
+      - name: region
+        value: us-west-2
+      - name: isPrimary
+        value: "true"
+      - name: replicaCount
+        value: "5"
+  destination:
+    server: https://minecraft-usw2-01.example.com
+    namespace: minecraft-platform
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: minecraft-platform-us-east-1
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/minecraft-platform/infrastructure
+    targetRevision: main
+    path: k8s/environments/production
+    helm:
+      parameters:
+      - name: region
+        value: us-east-1
+      - name: isPrimary
+        value: "false"
+      - name: replicaCount
+        value: "3"
+      - name: databaseMode
+        value: "replica"
+  destination:
+    server: https://minecraft-use1-01.example.com
+    namespace: minecraft-platform
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: minecraft-platform-eu-west-1
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/minecraft-platform/infrastructure
+    targetRevision: main
+    path: k8s/environments/production
+    helm:
+      parameters:
+      - name: region
+        value: eu-west-1
+      - name: isPrimary
+        value: "false"
+      - name: replicaCount
+        value: "3"
+      - name: databaseMode
+        value: "replica"
+  destination:
+    server: https://minecraft-euw1-01.example.com
+    namespace: minecraft-platform
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: minecraft-platform-ap-southeast-1
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/minecraft-platform/infrastructure
+    targetRevision: main
+    path: k8s/environments/production
+    helm:
+      parameters:
+      - name: region
+        value: ap-southeast-1
+      - name: isPrimary
+        value: "false"
+      - name: replicaCount
+        value: "3"
+      - name: databaseMode
+        value: "replica"
+  destination:
+    server: https://minecraft-apse1-01.example.com
+    namespace: minecraft-platform
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+
+---
+# Global DNS configuration for multi-region setup
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: global-dns-config
+  namespace: minecraft-platform
+data:
+  dns.yaml: |
+    # Global DNS configuration for multi-region deployment
+    dns_config:
+      # Primary domain
+      primary_domain: "minecraft-platform.com"
+
+      # Regional subdomains
+      regional_endpoints:
+        - region: "us-west-2"
+          subdomain: "usw2.minecraft-platform.com"
+          weight: 100  # Primary region gets most traffic
+
+        - region: "us-east-1"
+          subdomain: "use1.minecraft-platform.com"
+          weight: 80
+
+        - region: "eu-west-1"
+          subdomain: "euw1.minecraft-platform.com"
+          weight: 80
+
+        - region: "ap-southeast-1"
+          subdomain: "apse1.minecraft-platform.com"
+          weight: 80
+
+      # Geographic routing rules
+      geographic_routing:
+        - geographic_location: "North America"
+          primary: "us-west-2"
+          fallback: "us-east-1"
+
+        - geographic_location: "Europe"
+          primary: "eu-west-1"
+          fallback: "us-east-1"
+
+        - geographic_location: "Asia Pacific"
+          primary: "ap-southeast-1"
+          fallback: "us-west-2"
+
+        - geographic_location: "Global"
+          primary: "us-west-2"
+          fallback: "us-east-1"
+
+      # Health check configuration
+      health_checks:
+        - name: "api_health_check"
+          path: "/api/v1/health"
+          port: 443
+          protocol: "HTTPS"
+          interval: 30
+          timeout: 10
+          healthy_threshold: 2
+          unhealthy_threshold: 3
+
+        - name: "minecraft_server_health"
+          path: "/api/v1/servers/health"
+          port: 443
+          protocol: "HTTPS"
+          interval: 60
+          timeout: 15
+          healthy_threshold: 2
+          unhealthy_threshold: 2
+
+      # Failover policies
+      failover:
+        automatic: true
+        failover_threshold: 3  # Failed health checks
+        recovery_threshold: 2  # Successful health checks to recover
+
+---
+# Cross-region monitoring and alerting
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cross-region-monitoring
+  namespace: minecraft-platform
+data:
+  monitoring.yaml: |
+    # Cross-region monitoring configuration
+    monitoring:
+      # Global metrics collection
+      global_metrics:
+        - name: "cross_region_latency"
+          description: "Network latency between regions"
+          query: "histogram_quantile(0.95, sum(rate(cross_region_request_duration_seconds_bucket[5m])) by (source_region, target_region, le))"
+
+        - name: "regional_capacity_utilization"
+          description: "Capacity utilization per region"
+          query: "sum(minecraft_active_players) by (region) / sum(minecraft_max_capacity) by (region)"
+
+        - name: "cross_region_data_sync_lag"
+          description: "Data synchronization lag between regions"
+          query: "time() - max(database_last_sync_timestamp) by (replica_region)"
+
+      # Regional health metrics
+      regional_health:
+        - name: "api_availability"
+          query: "up{job=\"api-server\"} by (region)"
+          threshold: 0.99  # 99% availability
+
+        - name: "database_replication_lag"
+          query: "database_replica_lag_seconds by (region)"
+          threshold: 30    # 30 seconds max lag
+
+        - name: "minecraft_server_capacity"
+          query: "sum(minecraft_server_capacity) by (region)"
+
+      # Global alerting rules
+      alerts:
+        - name: "RegionDown"
+          condition: "up{job=\"api-server\"} by (region) < 0.5"
+          duration: "5m"
+          severity: "critical"
+          message: "Region {{ $labels.region }} is experiencing significant downtime"
+
+        - name: "CrossRegionLatencyHigh"
+          condition: "cross_region_latency > 0.5"
+          duration: "10m"
+          severity: "warning"
+          message: "High latency detected between {{ $labels.source_region }} and {{ $labels.target_region }}"
+
+        - name: "DatabaseReplicationLag"
+          condition: "cross_region_data_sync_lag > 300"
+          duration: "5m"
+          severity: "critical"
+          message: "Database replication lag exceeded 5 minutes in region {{ $labels.replica_region }}"
+
+        - name: "RegionalCapacityHigh"
+          condition: "regional_capacity_utilization > 0.8"
+          duration: "15m"
+          severity: "warning"
+          message: "Region {{ $labels.region }} capacity utilization above 80%"

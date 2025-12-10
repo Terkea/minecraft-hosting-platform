@@ -1,0 +1,383 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: minecraft-platform-prod
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-server-ingress
+  namespace: minecraft-platform-prod
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: api-server
+  policyTypes:
+  - Ingress
+  ingress:
+  # Allow ingress from nginx ingress controller
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 8080
+
+  # Allow ingress from monitoring namespace
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - protocol: TCP
+      port: 8080
+    - protocol: TCP
+      port: 8081  # Metrics endpoint
+
+  # Allow ingress from same namespace (service mesh)
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: minecraft-platform-prod
+    ports:
+    - protocol: TCP
+      port: 8080
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-server-egress
+  namespace: minecraft-platform-prod
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: api-server
+  policyTypes:
+  - Egress
+  egress:
+  # Allow egress to database
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 26257  # CockroachDB
+
+  # Allow egress to Redis
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 6379
+
+  # Allow egress to NATS
+  - to:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: nats
+    ports:
+    - protocol: TCP
+      port: 4222
+
+  # Allow egress to Kubernetes API
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+
+  # Allow egress to DNS
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+
+  # Allow egress to external services (S3, monitoring)
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 80
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: frontend-ingress
+  namespace: minecraft-platform-prod
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: frontend
+  policyTypes:
+  - Ingress
+  ingress:
+  # Allow ingress from nginx ingress controller
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 80
+
+  # Allow ingress from monitoring namespace
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - protocol: TCP
+      port: 80
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: frontend-egress
+  namespace: minecraft-platform-prod
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: frontend
+  policyTypes:
+  - Egress
+  egress:
+  # Allow egress to API server
+  - to:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: api-server
+    ports:
+    - protocol: TCP
+      port: 8080
+
+  # Allow egress to DNS
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+
+  # Allow egress to CDN and external assets
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 80
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: operator-ingress
+  namespace: minecraft-platform-prod
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: operator
+  policyTypes:
+  - Ingress
+  ingress:
+  # Allow webhook ingress from Kubernetes API server
+  - from: []
+    ports:
+    - protocol: TCP
+      port: 9443  # Webhook port
+
+  # Allow metrics ingress from monitoring
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - protocol: TCP
+      port: 8080  # Metrics port
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: operator-egress
+  namespace: minecraft-platform-prod
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: operator
+  policyTypes:
+  - Egress
+  egress:
+  # Allow egress to Kubernetes API
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+
+  # Allow egress to database
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 26257
+
+  # Allow egress to NATS
+  - to:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: nats
+    ports:
+    - protocol: TCP
+      port: 4222
+
+  # Allow egress to DNS
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+
+  # Allow egress to managed Minecraft servers (dynamic ports)
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          minecraft-platform.com/managed: "true"
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nats-ingress
+  namespace: minecraft-platform-prod
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: nats
+  policyTypes:
+  - Ingress
+  ingress:
+  # Allow client connections from same namespace
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: minecraft-platform-prod
+    ports:
+    - protocol: TCP
+      port: 4222  # Client port
+
+  # Allow cluster connections between NATS instances
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: nats
+    ports:
+    - protocol: TCP
+      port: 6222  # Cluster port
+
+  # Allow monitoring connections
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - protocol: TCP
+      port: 8222  # HTTP monitoring
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nats-egress
+  namespace: minecraft-platform-prod
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: nats
+  policyTypes:
+  - Egress
+  egress:
+  # Allow egress to other NATS instances (clustering)
+  - to:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: nats
+    ports:
+    - protocol: TCP
+      port: 6222
+
+  # Allow egress to DNS
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: minecraft-server-policy
+  namespace: minecraft-platform-prod
+spec:
+  podSelector:
+    matchLabels:
+      minecraft-platform.com/server: "true"
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Allow player connections from anywhere
+  - from: []
+    ports:
+    - protocol: TCP
+      port: 25565
+    - protocol: UDP
+      port: 25565
+
+  # Allow management connections from operator
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: minecraft-platform-prod
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: operator
+    ports:
+    - protocol: TCP
+      port: 25575  # RCON port
+
+  # Allow monitoring connections
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - protocol: TCP
+      port: 8080  # Metrics exporter
+
+  egress:
+  # Allow egress to internet for plugin downloads, authentication
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 80
+
+  # Allow egress to DNS
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53

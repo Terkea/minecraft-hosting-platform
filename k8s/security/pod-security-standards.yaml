@@ -1,0 +1,153 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: minecraft-platform
+  labels:
+    # Pod Security Standards enforcement
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+    # Network policy enforcement
+    name: minecraft-platform
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/warn: baseline
+    name: monitoring
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: logging
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/warn: baseline
+    name: logging
+
+---
+# Pod Security Policy for Minecraft servers
+apiVersion: policy/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  name: minecraft-server-psp
+  namespace: minecraft-platform
+spec:
+  # Security context requirements
+  privileged: false
+  allowPrivilegeEscalation: false
+  requiredDropCapabilities:
+    - ALL
+  allowedCapabilities: []
+
+  # Volume restrictions
+  volumes:
+    - configMap
+    - emptyDir
+    - projected
+    - secret
+    - downwardAPI
+    - persistentVolumeClaim
+
+  # User/group restrictions
+  runAsUser:
+    rule: MustRunAsNonRoot
+  runAsGroup:
+    rule: MustRunAs
+    ranges:
+      - min: 1000
+        max: 65535
+
+  # Filesystem restrictions
+  fsGroup:
+    rule: RunAsAny
+  readOnlyRootFilesystem: true
+
+  # Network restrictions
+  hostNetwork: false
+  hostIPC: false
+  hostPID: false
+
+  # Security profiles
+  seccomp:
+    rule: MustRunAs
+    defaultProfile: runtime/default
+  seLinux:
+    rule: RunAsAny
+
+  # Resource limits enforcement
+  forbiddenSysctls:
+    - '*'
+
+---
+# ClusterRole for Pod Security Policy
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: minecraft-server-psp
+rules:
+- apiGroups:
+  - policy
+  resources:
+  - podsecuritypolicies
+  verbs:
+  - use
+  resourceNames:
+  - minecraft-server-psp
+
+---
+# ClusterRoleBinding for Pod Security Policy
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: minecraft-server-psp
+roleRef:
+  kind: ClusterRole
+  name: minecraft-server-psp
+  apiGroup: rbac.authorization.k8s.io
+subjects:
+- kind: ServiceAccount
+  name: minecraft-operator
+  namespace: minecraft-platform
+- kind: ServiceAccount
+  name: minecraft-api
+  namespace: minecraft-platform
+
+---
+# Security context constraints for restricted workloads
+apiVersion: security.openshift.io/v1
+kind: SecurityContextConstraints
+metadata:
+  name: minecraft-restricted
+allowHostDirVolumePlugin: false
+allowHostIPC: false
+allowHostNetwork: false
+allowHostPID: false
+allowHostPorts: false
+allowPrivilegedContainer: false
+allowedCapabilities: []
+allowedUnsafeSysctls: []
+defaultAddCapabilities: []
+fsGroup:
+  type: RunAsAny
+readOnlyRootFilesystem: true
+requiredDropCapabilities:
+- ALL
+runAsUser:
+  type: MustRunAsNonRoot
+supplementalGroups:
+  type: RunAsAny
+volumes:
+- configMap
+- downwardAPI
+- emptyDir
+- persistentVolumeClaim
+- projected
+- secret

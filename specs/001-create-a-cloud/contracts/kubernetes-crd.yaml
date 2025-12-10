@@ -1,0 +1,150 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: minecraftservers.minecraft.platform
+spec:
+  group: minecraft.platform
+  versions:
+  - name: v1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            required: [version, resources, serverProperties]
+            properties:
+              version:
+                type: string
+                description: Minecraft server version
+                pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+              resources:
+                type: object
+                required: [cpu, memory, storage]
+                properties:
+                  cpu:
+                    type: string
+                    description: CPU allocation (e.g., "2", "500m")
+                  memory:
+                    type: string
+                    description: Memory allocation (e.g., "4Gi", "2048Mi")
+                  storage:
+                    type: string
+                    description: Storage allocation (e.g., "20Gi")
+              serverProperties:
+                type: object
+                description: Minecraft server.properties configuration
+                additionalProperties:
+                  type: string
+              plugins:
+                type: array
+                description: List of plugins to install
+                items:
+                  type: object
+                  required: [name, version]
+                  properties:
+                    name:
+                      type: string
+                    version:
+                      type: string
+                    downloadUrl:
+                      type: string
+                    configOverrides:
+                      type: object
+                      additionalProperties:
+                        type: string
+              backup:
+                type: object
+                description: Backup configuration
+                properties:
+                  enabled:
+                    type: boolean
+                    default: true
+                  schedule:
+                    type: string
+                    description: Cron expression for backup schedule
+                    default: "0 */6 * * *"
+                  retention:
+                    type: string
+                    description: Backup retention period
+                    default: "7d"
+              networkPolicy:
+                type: object
+                description: Network access controls
+                properties:
+                  allowedPorts:
+                    type: array
+                    items:
+                      type: integer
+                  whitelist:
+                    type: array
+                    items:
+                      type: string
+          status:
+            type: object
+            properties:
+              phase:
+                type: string
+                enum: [Pending, Deploying, Running, Stopped, Failed, Terminating]
+              conditions:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    type:
+                      type: string
+                    status:
+                      type: string
+                    lastTransitionTime:
+                      type: string
+                      format: date-time
+                    reason:
+                      type: string
+                    message:
+                      type: string
+              playerCount:
+                type: integer
+                minimum: 0
+              lastBackup:
+                type: string
+                format: date-time
+              externalEndpoint:
+                type: string
+                description: Public endpoint for player connections
+              metrics:
+                type: object
+                properties:
+                  tps:
+                    type: number
+                  cpuUsage:
+                    type: number
+                  memoryUsage:
+                    type: number
+                  diskUsage:
+                    type: number
+    additionalPrinterColumns:
+    - name: Phase
+      type: string
+      description: Current phase of the Minecraft server
+      jsonPath: .status.phase
+    - name: Version
+      type: string
+      description: Minecraft version
+      jsonPath: .spec.version
+    - name: Players
+      type: integer
+      description: Current player count
+      jsonPath: .status.playerCount
+    - name: Age
+      type: date
+      jsonPath: .metadata.creationTimestamp
+  scope: Namespaced
+  names:
+    plural: minecraftservers
+    singular: minecraftserver
+    kind: MinecraftServer
+    shortNames:
+    - mcserver
+    - mcs

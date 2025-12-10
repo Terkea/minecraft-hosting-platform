@@ -1,0 +1,163 @@
+---
+# Operator deployment for local development
+# Uses the manifests from k8s/operator/config/
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: minecraft-operator
+  namespace: minecraft-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: minecraft-operator-role
+rules:
+  # MinecraftServer CRD permissions
+  - apiGroups:
+      - minecraft.platform.com
+    resources:
+      - minecraftservers
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - minecraft.platform.com
+    resources:
+      - minecraftservers/status
+    verbs:
+      - get
+      - patch
+      - update
+  - apiGroups:
+      - minecraft.platform.com
+    resources:
+      - minecraftservers/finalizers
+    verbs:
+      - update
+
+  # Core resources for managing Minecraft servers
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+      - pods/log
+      - services
+      - configmaps
+      - secrets
+      - persistentvolumeclaims
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+
+  # StatefulSets for Minecraft servers
+  - apiGroups:
+      - apps
+    resources:
+      - statefulsets
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+
+  # Events for status reporting
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
+
+  # Leader election
+  - apiGroups:
+      - coordination.k8s.io
+    resources:
+      - leases
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: minecraft-operator-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: minecraft-operator-role
+subjects:
+  - kind: ServiceAccount
+    name: minecraft-operator
+    namespace: minecraft-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minecraft-operator
+  namespace: minecraft-system
+  labels:
+    app: minecraft-operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: minecraft-operator
+  template:
+    metadata:
+      labels:
+        app: minecraft-operator
+    spec:
+      serviceAccountName: minecraft-operator
+      containers:
+        - name: operator
+          image: minecraft-platform-operator:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - --leader-elect=false
+            - --metrics-bind-address=:8080
+            - --health-probe-bind-address=:8081
+          ports:
+            - name: metrics
+              containerPort: 8080
+              protocol: TCP
+            - name: health
+              containerPort: 8081
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            limits:
+              cpu: 500m
+              memory: 256Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi

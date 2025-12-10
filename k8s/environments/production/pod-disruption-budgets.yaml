@@ -1,0 +1,77 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: api-server-pdb
+  namespace: minecraft-platform-prod
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api-server
+      app.kubernetes.io/instance: minecraft-platform
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: frontend-pdb
+  namespace: minecraft-platform-prod
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: frontend
+      app.kubernetes.io/instance: minecraft-platform
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: operator-pdb
+  namespace: minecraft-platform-prod
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: operator
+      app.kubernetes.io/instance: minecraft-platform
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: nats-pdb
+  namespace: minecraft-platform-prod
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nats
+      app.kubernetes.io/instance: minecraft-platform
+
+---
+# PDB for Minecraft servers - protect premium servers during disruptions
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: minecraft-server-premium-pdb
+  namespace: minecraft-platform-prod
+spec:
+  maxUnavailable: "10%"
+  selector:
+    matchLabels:
+      minecraft-platform.com/server: "true"
+      minecraft-platform.com/tier: "premium"
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: minecraft-server-standard-pdb
+  namespace: minecraft-platform-prod
+spec:
+  maxUnavailable: "25%"
+  selector:
+    matchLabels:
+      minecraft-platform.com/server: "true"
+      minecraft-platform.com/tier: "standard"
