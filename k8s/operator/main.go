@@ -3,10 +3,14 @@ package main
 import (
 	"flag"
 	"os"
+	"path/filepath"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -33,6 +37,14 @@ func main() {
 	var probeAddr string
 	var natsURL string
 	var enableEvents bool
+
+	// Default kubeconfig path
+	var kubeconfig string
+	if home := os.Getenv("USERPROFILE"); home != "" {
+		kubeconfig = filepath.Join(home, ".kube", "config")
+	} else if home := os.Getenv("HOME"); home != "" {
+		kubeconfig = filepath.Join(home, ".kube", "config")
+	}
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -67,7 +79,23 @@ func main() {
 		}
 	}
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	// Get the rest config - try in-cluster first, then kubeconfig file
+	var restConfig *rest.Config
+	var configErr error
+
+	// Try in-cluster config first
+	restConfig, configErr = rest.InClusterConfig()
+	if configErr != nil {
+		// Not in cluster, use kubeconfig file
+		setupLog.Info("Not running in cluster, using kubeconfig", "path", kubeconfig)
+		restConfig, configErr = clientcmd.BuildConfigFromFlags("", kubeconfig)
+		if configErr != nil {
+			setupLog.Error(configErr, "unable to load kubeconfig")
+			os.Exit(1)
+		}
+	}
+
+	mgr, err := ctrl.NewManager(restConfig, ctrl.Options{
 		Scheme:                  scheme,
 		Metrics:                 metricsserver.Options{BindAddress: metricsAddr},
 		HealthProbeBindAddress:  probeAddr,
@@ -79,10 +107,19 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Create kubernetes clientset for exec operations (player count query)
+	clientset, err := kubernetes.NewForConfig(restConfig)
+	if err != nil {
+		setupLog.Error(err, "unable to create kubernetes clientset")
+		os.Exit(1)
+	}
+
 	if err = (&controllers.MinecraftServerReconciler{
 		Client:         mgr.GetClient(),
 		Scheme:         mgr.GetScheme(),
 		EventPublisher: eventPublisher,
+		Clientset:      clientset,
+		RestConfig:     restConfig,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "MinecraftServer")
 		os.Exit(1)
