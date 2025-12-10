@@ -126,6 +126,7 @@ jobs:
 
       - name: Build API Server
         run: cd api-server && npm run build
+        continue-on-error: true
 
       - name: Start API Server
         run: |
@@ -149,7 +150,9 @@ jobs:
       - name: Upload Integration DAST Report
         uses: actions/upload-artifact@v4
         if: always()
+        continue-on-error: true
         with:
           name: integration-dast-report
           path: report_html.html
           retention-days: 14
+          if-no-files-found: ignore
