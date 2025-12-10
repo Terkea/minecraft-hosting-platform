@@ -5,6 +5,7 @@ A cloud-native platform for deploying, configuring, and managing Minecraft serve
 ## Project Structure
 
 ### Backend (Go 1.21+)
+
 - **API Server**: REST API with Gin framework
 - **Database**: CockroachDB with multi-tenant isolation
 - **Testing**: Testcontainers for integration tests
@@ -25,6 +26,7 @@ backend/
 ```
 
 ### Frontend (Svelte + TypeScript)
+
 - **Dashboard**: Real-time server monitoring
 - **Management**: Server lifecycle and configuration
 - **Plugins**: Marketplace and installation interface
@@ -42,6 +44,7 @@ frontend/
 ```
 
 ### Kubernetes Operator
+
 - **Custom Resources**: MinecraftServer CRD
 - **Controllers**: Server lifecycle management
 - **Manifests**: Deployment configurations
@@ -62,6 +65,7 @@ k8s/
 ## Getting Started
 
 ### Prerequisites
+
 - Go 1.21+
 - Node.js 18+ with npm
 - Kubernetes 1.28+ cluster
@@ -70,6 +74,7 @@ k8s/
 ### Development Setup
 
 1. **Backend Development**:
+
 ```bash
 cd backend
 go mod tidy
@@ -77,6 +82,7 @@ go run cmd/api-server/main.go
 ```
 
 2. **Frontend Development**:
+
 ```bash
 cd frontend
 npm install
@@ -84,6 +90,7 @@ npm run dev
 ```
 
 3. **Kubernetes Operator**:
+
 ```bash
 cd k8s/operator
 make generate
@@ -94,6 +101,7 @@ make run
 ### Testing
 
 **TDD Workflow** (Test-Driven Development):
+
 ```bash
 # 1. Write tests first (they must fail)
 go test ./tests/contract/...

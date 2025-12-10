@@ -93,10 +93,7 @@ export class EventBus {
   }
 
   // Subscribe to an event type
-  subscribe<T extends BaseEvent>(
-    eventType: EventType | '*',
-    handler: EventHandler<T>
-  ): () => void {
+  subscribe<T extends BaseEvent>(eventType: EventType | '*', handler: EventHandler<T>): () => void {
     const handlers = this.handlers.get(eventType) || new Set();
     handlers.add(handler);
     this.handlers.set(eventType, handlers);
@@ -112,7 +109,11 @@ export class EventBus {
 
   // Helper methods for common events
 
-  publishServerCreated(serverId: string, tenantId: string, data: Record<string, unknown> = {}): void {
+  publishServerCreated(
+    serverId: string,
+    tenantId: string,
+    data: Record<string, unknown> = {}
+  ): void {
     this.publish<ServerEvent>({
       id: uuidv4(),
       type: EventType.SERVER_CREATED,

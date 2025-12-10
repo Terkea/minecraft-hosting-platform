@@ -1,5 +1,17 @@
 import { useState } from 'react';
-import { Server, Plus, Trash2, RefreshCw, Copy, Check, Wifi, WifiOff, Eye, Square, Play } from 'lucide-react';
+import {
+  Server,
+  Plus,
+  Trash2,
+  RefreshCw,
+  Copy,
+  Check,
+  Wifi,
+  WifiOff,
+  Eye,
+  Square,
+  Play,
+} from 'lucide-react';
 import { useWebSocket } from './useWebSocket';
 import { createServer, deleteServer, listServers, stopServer, startServer } from './api';
 import { ServerDetail } from './ServerDetail';
@@ -53,11 +65,7 @@ function App() {
   const handleStop = async (name: string) => {
     try {
       await stopServer(name);
-      setServers((prev) =>
-        prev.map((s) =>
-          s.name === name ? { ...s, phase: 'Stopping' } : s
-        )
-      );
+      setServers((prev) => prev.map((s) => (s.name === name ? { ...s, phase: 'Stopping' } : s)));
     } catch (err) {
       setError(`Failed to stop server: ${err}`);
     }
@@ -66,20 +74,15 @@ function App() {
   const handleStart = async (name: string) => {
     try {
       await startServer(name);
-      setServers((prev) =>
-        prev.map((s) =>
-          s.name === name ? { ...s, phase: 'Starting' } : s
-        )
-      );
+      setServers((prev) => prev.map((s) => (s.name === name ? { ...s, phase: 'Starting' } : s)));
     } catch (err) {
       setError(`Failed to start server: ${err}`);
     }
   };
 
   const copyConnectionInfo = (server: ServerType) => {
-    const connectionString = server.externalIP && server.port
-      ? `${server.externalIP}:${server.port}`
-      : 'Not available';
+    const connectionString =
+      server.externalIP && server.port ? `${server.externalIP}:${server.port}` : 'Not available';
 
     navigator.clipboard.writeText(connectionString);
     setCopiedServer(server.name);
@@ -120,9 +123,11 @@ function App() {
             </div>
 
             <div className="flex items-center gap-4">
-              <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm ${
-                connected ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
-              }`}>
+              <div
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm ${
+                  connected ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
+                }`}
+              >
                 {connected ? <Wifi className="w-4 h-4" /> : <WifiOff className="w-4 h-4" />}
                 {connected ? 'Connected' : 'Disconnected'}
               </div>
@@ -152,10 +157,7 @@ function App() {
         {error && (
           <div className="mb-6 p-4 bg-red-500/20 border border-red-500/50 rounded-lg text-red-400">
             {error}
-            <button
-              onClick={() => setError(null)}
-              className="ml-4 text-red-300 hover:text-red-200"
-            >
+            <button onClick={() => setError(null)} className="ml-4 text-red-300 hover:text-red-200">
               Dismiss
             </button>
           </div>
@@ -184,18 +186,16 @@ function App() {
                 <div className="flex items-start justify-between mb-4">
                   <div>
                     <h3 className="text-lg font-semibold text-white">{server.name}</h3>
-                    <p className="text-sm text-gray-400">
-                      {server.version || 'Unknown version'}
-                    </p>
+                    <p className="text-sm text-gray-400">{server.version || 'Unknown version'}</p>
                   </div>
-                  <span className={`px-2.5 py-1 rounded-full text-xs font-medium text-white ${getStatusColor(server.phase)}`}>
+                  <span
+                    className={`px-2.5 py-1 rounded-full text-xs font-medium text-white ${getStatusColor(server.phase)}`}
+                  >
                     {server.phase || 'Unknown'}
                   </span>
                 </div>
 
-                {server.message && (
-                  <p className="text-sm text-gray-500 mb-4">{server.message}</p>
-                )}
+                {server.message && <p className="text-sm text-gray-500 mb-4">{server.message}</p>}
 
                 <div className="space-y-2 mb-4">
                   <div className="flex justify-between text-sm">
@@ -242,7 +242,10 @@ function App() {
                   ) : (
                     <button
                       onClick={() => handleStop(server.name)}
-                      disabled={server.phase?.toLowerCase() === 'stopping' || server.phase?.toLowerCase() === 'starting'}
+                      disabled={
+                        server.phase?.toLowerCase() === 'stopping' ||
+                        server.phase?.toLowerCase() === 'starting'
+                      }
                       className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-400 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <Square className="w-4 h-4" />
@@ -322,9 +325,7 @@ function CreateServerModal({ onClose, onCreated, onError }: CreateServerModalPro
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">
-              Server Name *
-            </label>
+            <label className="block text-sm font-medium text-gray-300 mb-1">Server Name *</label>
             <input
               type="text"
               value={formData.name}
@@ -337,9 +338,7 @@ function CreateServerModal({ onClose, onCreated, onError }: CreateServerModalPro
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1">
-                Version
-              </label>
+              <label className="block text-sm font-medium text-gray-300 mb-1">Version</label>
               <select
                 value={formData.version}
                 onChange={(e) => setFormData({ ...formData, version: e.target.value })}
@@ -354,9 +353,7 @@ function CreateServerModal({ onClose, onCreated, onError }: CreateServerModalPro
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1">
-                Max Players
-              </label>
+              <label className="block text-sm font-medium text-gray-300 mb-1">Max Players</label>
               <input
                 type="number"
                 value={formData.maxPlayers}
@@ -370,9 +367,7 @@ function CreateServerModal({ onClose, onCreated, onError }: CreateServerModalPro
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1">
-                Gamemode
-              </label>
+              <label className="block text-sm font-medium text-gray-300 mb-1">Gamemode</label>
               <select
                 value={formData.gamemode}
                 onChange={(e) => setFormData({ ...formData, gamemode: e.target.value })}
@@ -386,9 +381,7 @@ function CreateServerModal({ onClose, onCreated, onError }: CreateServerModalPro
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1">
-                Difficulty
-              </label>
+              <label className="block text-sm font-medium text-gray-300 mb-1">Difficulty</label>
               <select
                 value={formData.difficulty}
                 onChange={(e) => setFormData({ ...formData, difficulty: e.target.value })}
@@ -403,9 +396,7 @@ function CreateServerModal({ onClose, onCreated, onError }: CreateServerModalPro
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">
-              Memory
-            </label>
+            <label className="block text-sm font-medium text-gray-300 mb-1">Memory</label>
             <select
               value={formData.memory}
               onChange={(e) => setFormData({ ...formData, memory: e.target.value })}

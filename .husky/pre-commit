@@ -1,0 +1,11 @@
+npx lint-staged
+
+# Run gitleaks secret detection if available
+if command -v gitleaks &> /dev/null; then
+    echo "Running secret detection..."
+    gitleaks protect --staged --verbose
+    if [ $? -ne 0 ]; then
+        echo "Error: Secrets detected in staged files. Please remove them before committing."
+        exit 1
+    fi
+fi

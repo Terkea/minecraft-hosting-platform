@@ -3,11 +3,11 @@ import * as k8s from '@kubernetes/client-node';
 export interface PodMetrics {
   name: string;
   cpu: {
-    usage: string;      // e.g., "250m" (millicores)
-    usageNano: number;  // nanoseconds
+    usage: string; // e.g., "250m" (millicores)
+    usageNano: number; // nanoseconds
   };
   memory: {
-    usage: string;      // e.g., "512Mi"
+    usage: string; // e.g., "512Mi"
     usageBytes: number; // bytes
   };
   timestamp: Date;
@@ -16,7 +16,7 @@ export interface PodMetrics {
 export interface ServerMetrics {
   name: string;
   pod?: PodMetrics;
-  uptime?: number;  // seconds
+  uptime?: number; // seconds
   startTime?: Date;
   restartCount: number;
   ready: boolean;
@@ -49,7 +49,7 @@ export class MetricsService {
     console.log(`[MetricsService] Starting metrics polling (every ${intervalMs}ms)`);
 
     // Initial collection
-    this.collectAllMetrics().catch(err => {
+    this.collectAllMetrics().catch((err) => {
       console.error('[MetricsService] Initial metrics collection failed:', err);
     });
 
@@ -101,15 +101,19 @@ export class MetricsService {
         const serverName = podName.replace(/-\d+$/, '');
 
         // Skip if not a minecraft server pod
-        if (!pod.metadata?.labels?.['app.kubernetes.io/name']?.includes('minecraft') &&
-            !pod.metadata?.labels?.['server-id'] &&
-            !serverName) {
+        if (
+          !pod.metadata?.labels?.['app.kubernetes.io/name']?.includes('minecraft') &&
+          !pod.metadata?.labels?.['server-id'] &&
+          !serverName
+        ) {
           continue;
         }
 
         const containerStatus = pod.status?.containerStatuses?.[0];
         const startTime = pod.status?.startTime ? new Date(pod.status.startTime) : undefined;
-        const uptime = startTime ? Math.floor((Date.now() - startTime.getTime()) / 1000) : undefined;
+        const uptime = startTime
+          ? Math.floor((Date.now() - startTime.getTime()) / 1000)
+          : undefined;
 
         const serverMetrics: ServerMetrics = {
           name: serverName,
@@ -180,14 +184,14 @@ export class MetricsService {
   // Parse memory string to bytes (e.g., "512Mi" -> 536870912)
   private parseMemoryToBytes(memory: string): number {
     const units: { [key: string]: number } = {
-      'Ki': 1024,
-      'Mi': 1024 * 1024,
-      'Gi': 1024 * 1024 * 1024,
-      'Ti': 1024 * 1024 * 1024 * 1024,
-      'K': 1000,
-      'M': 1000000,
-      'G': 1000000000,
-      'T': 1000000000000,
+      Ki: 1024,
+      Mi: 1024 * 1024,
+      Gi: 1024 * 1024 * 1024,
+      Ti: 1024 * 1024 * 1024 * 1024,
+      K: 1000,
+      M: 1000000,
+      G: 1000000000,
+      T: 1000000000000,
     };
 
     for (const [suffix, multiplier] of Object.entries(units)) {

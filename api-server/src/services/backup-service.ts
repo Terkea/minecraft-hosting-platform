@@ -77,7 +77,7 @@ export class BackupService {
     });
 
     // Start backup job asynchronously
-    this.runBackupJob(backup).catch(error => {
+    this.runBackupJob(backup).catch((error) => {
       console.error(`[BackupService] Backup ${backupId} failed:`, error);
     });
 
@@ -101,7 +101,7 @@ export class BackupService {
           name: jobName,
           namespace: this.namespace,
           labels: {
-            'app': 'minecraft-backup',
+            app: 'minecraft-backup',
             'backup-id': backup.id,
             'server-id': backup.serverId,
           },
@@ -150,7 +150,7 @@ export class BackupService {
       const maxAttempts = 60; // 5 minutes max
 
       while (!completed && attempts < maxAttempts) {
-        await new Promise(resolve => setTimeout(resolve, 5000));
+        await new Promise((resolve) => setTimeout(resolve, 5000));
         attempts++;
 
         try {
@@ -212,7 +212,6 @@ export class BackupService {
       }
 
       this.backups.set(backup.id, backup);
-
     } catch (error: any) {
       console.error(`[BackupService] Failed to create backup job:`, error);
 
@@ -238,10 +237,10 @@ export class BackupService {
     let backups = Array.from(this.backups.values());
 
     if (serverId) {
-      backups = backups.filter(b => b.serverId === serverId);
+      backups = backups.filter((b) => b.serverId === serverId);
     }
     if (tenantId) {
-      backups = backups.filter(b => b.tenantId === tenantId);
+      backups = backups.filter((b) => b.tenantId === tenantId);
     }
 
     return backups.sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime());

@@ -215,49 +215,52 @@ interface UpdateServerBody {
   motd?: string;
 }
 
-app.patch('/api/v1/servers/:name', async (req: Request<{ name: string }, {}, UpdateServerBody>, res: Response) => {
-  try {
-    const { name } = req.params;
-    const { version, maxPlayers, gamemode, difficulty, motd } = req.body;
+app.patch(
+  '/api/v1/servers/:name',
+  async (req: Request<{ name: string }, {}, UpdateServerBody>, res: Response) => {
+    try {
+      const { name } = req.params;
+      const { version, maxPlayers, gamemode, difficulty, motd } = req.body;
 
-    const updates: Partial<MinecraftServerSpec> = {};
+      const updates: Partial<MinecraftServerSpec> = {};
 
-    if (version) {
-      updates.version = version;
-    }
+      if (version) {
+        updates.version = version;
+      }
 
-    if (maxPlayers || gamemode || difficulty || motd) {
-      updates.config = {} as any;
-      if (maxPlayers) updates.config!.maxPlayers = maxPlayers;
-      if (gamemode) updates.config!.gamemode = gamemode;
-      if (difficulty) updates.config!.difficulty = difficulty;
-      if (motd) updates.config!.motd = motd;
-    }
+      if (maxPlayers || gamemode || difficulty || motd) {
+        updates.config = {} as any;
+        if (maxPlayers) updates.config!.maxPlayers = maxPlayers;
+        if (gamemode) updates.config!.gamemode = gamemode;
+        if (difficulty) updates.config!.difficulty = difficulty;
+        if (motd) updates.config!.motd = motd;
+      }
 
-    const server = await k8sClient.updateMinecraftServer(name, updates);
+      const server = await k8sClient.updateMinecraftServer(name, updates);
 
-    broadcastServerUpdate('updated', server);
+      broadcastServerUpdate('updated', server);
 
-    res.json({
-      message: 'Server update initiated',
-      server,
-    });
-  } catch (error: any) {
-    console.error('Failed to update server:', error);
+      res.json({
+        message: 'Server update initiated',
+        server,
+      });
+    } catch (error: any) {
+      console.error('Failed to update server:', error);
 
-    if (error.message.includes('not found')) {
-      return res.status(404).json({
-        error: 'not_found',
+      if (error.message.includes('not found')) {
+        return res.status(404).json({
+          error: 'not_found',
+          message: error.message,
+        });
+      }
+
+      res.status(500).json({
+        error: 'update_failed',
         message: error.message,
       });
     }
-
-    res.status(500).json({
-      error: 'update_failed',
-      message: error.message,
-    });
   }
-});
+);
 
 // Scale server resources
 interface ScaleServerBody {
@@ -266,39 +269,42 @@ interface ScaleServerBody {
   memory?: string;
 }
 
-app.post('/api/v1/servers/:name/scale', async (req: Request<{ name: string }, {}, ScaleServerBody>, res: Response) => {
-  try {
-    const { name } = req.params;
-    const { cpuLimit, memoryLimit, memory } = req.body;
+app.post(
+  '/api/v1/servers/:name/scale',
+  async (req: Request<{ name: string }, {}, ScaleServerBody>, res: Response) => {
+    try {
+      const { name } = req.params;
+      const { cpuLimit, memoryLimit, memory } = req.body;
 
-    const server = await k8sClient.scaleMinecraftServer(name, {
-      cpuLimit,
-      memoryLimit,
-      memory,
-    });
+      const server = await k8sClient.scaleMinecraftServer(name, {
+        cpuLimit,
+        memoryLimit,
+        memory,
+      });
 
-    broadcastServerUpdate('scaled', server);
+      broadcastServerUpdate('scaled', server);
 
-    res.json({
-      message: 'Server scaling initiated',
-      server,
-    });
-  } catch (error: any) {
-    console.error('Failed to scale server:', error);
+      res.json({
+        message: 'Server scaling initiated',
+        server,
+      });
+    } catch (error: any) {
+      console.error('Failed to scale server:', error);
 
-    if (error.message.includes('not found')) {
-      return res.status(404).json({
-        error: 'not_found',
+      if (error.message.includes('not found')) {
+        return res.status(404).json({
+          error: 'not_found',
+          message: error.message,
+        });
+      }
+
+      res.status(500).json({
+        error: 'scale_failed',
         message: error.message,
       });
     }
-
-    res.status(500).json({
-      error: 'scale_failed',
-      message: error.message,
-    });
   }
-});
+);
 
 // Stop a server (scale StatefulSet to 0)
 app.post('/api/v1/servers/:name/stop', async (req: Request, res: Response) => {
@@ -472,7 +478,9 @@ app.get('/api/v1/servers/:name/players', async (req: Request, res: Response) => 
     const listResult = await k8sClient.executeCommand(name, 'list');
 
     // Parse "There are X of a max of Y players online: player1, player2"
-    const listMatch = listResult.match(/There are (\d+) of a max of (\d+) players online[:\s]*(.*)?/i);
+    const listMatch = listResult.match(
+      /There are (\d+) of a max of (\d+) players online[:\s]*(.*)?/i
+    );
 
     if (!listMatch) {
       // No players or couldn't parse
@@ -485,7 +493,12 @@ app.get('/api/v1/servers/:name/players', async (req: Request, res: Response) => 
 
     const online = parseInt(listMatch[1], 10);
     const max = parseInt(listMatch[2], 10);
-    const playerNames = listMatch[3] ? listMatch[3].split(',').map(n => n.trim()).filter(n => n) : [];
+    const playerNames = listMatch[3]
+      ? listMatch[3]
+          .split(',')
+          .map((n) => n.trim())
+          .filter((n) => n)
+      : [];
 
     if (playerNames.length === 0) {
       return res.json({
@@ -523,10 +536,10 @@ app.get('/api/v1/servers/:name/players', async (req: Request, res: Response) => 
             k8sClient.executeCommand(name, `data get entity ${playerName} equipment`),
           ];
 
-          const results = await Promise.race([
+          const results = (await Promise.race([
             Promise.all(dataPromises),
-            timeoutPromise
-          ]) as string[];
+            timeoutPromise,
+          ])) as string[];
 
           return parsePlayerDataFromFields(playerName, results);
         } catch (err) {
@@ -539,7 +552,7 @@ app.get('/api/v1/servers/:name/players', async (req: Request, res: Response) => 
       players = await Promise.all(playerPromises);
     } else {
       // Return minimal data for each player (fast)
-      players = playerNames.map(playerName => getMinimalPlayerData(playerName));
+      players = playerNames.map((playerName) => getMinimalPlayerData(playerName));
     }
 
     res.json({
@@ -598,7 +611,8 @@ function parsePlayerDataFromFields(playerName: string, results: string[]): any {
 
   try {
     // Results are: [Health, foodLevel, Pos, Dimension, playerGameType, Inventory, XpLevel, SelectedItemSlot, equipment]
-    const [healthStr, foodStr, posStr, dimStr, gameTypeStr, invStr, xpStr, slotStr, equipStr] = results;
+    const [healthStr, foodStr, posStr, dimStr, gameTypeStr, invStr, xpStr, slotStr, equipStr] =
+      results;
 
     // Parse Health - format: "Player has the following entity data: 20.0f"
     const healthMatch = healthStr.match(/([\d.]+)f?$/);
@@ -626,7 +640,8 @@ function parsePlayerDataFromFields(playerName: string, results: string[]): any {
     const gameMatch = gameTypeStr.match(/(\d+)$/);
     if (gameMatch) {
       player.gameMode = parseInt(gameMatch[1], 10);
-      player.gameModeName = ['Survival', 'Creative', 'Adventure', 'Spectator'][player.gameMode] || 'Unknown';
+      player.gameModeName =
+        ['Survival', 'Creative', 'Adventure', 'Spectator'][player.gameMode] || 'Unknown';
     }
 
     // Parse Inventory - format: "Player has the following entity data: [{...}, {...}]"
@@ -687,7 +702,6 @@ function parsePlayerDataFromFields(playerName: string, results: string[]): any {
         if (idMatch) player.equipment.offhand = { id: idMatch[1], count: 1 };
       }
     }
-
   } catch (parseError) {
     console.error('Error parsing player field data:', parseError);
   }
@@ -793,7 +807,8 @@ function parsePlayerData(playerName: string, nbtString: string): any {
     const gameModeMatch = nbtString.match(/playerGameType:\s*(\d+)/);
     if (gameModeMatch) {
       player.gameMode = parseInt(gameModeMatch[1], 10);
-      player.gameModeName = ['Survival', 'Creative', 'Adventure', 'Spectator'][player.gameMode] || 'Unknown';
+      player.gameModeName =
+        ['Survival', 'Creative', 'Adventure', 'Spectator'][player.gameMode] || 'Unknown';
     }
 
     // Parse Pos
@@ -869,7 +884,6 @@ function parsePlayerData(playerName: string, nbtString: string): any {
     if (enderMatch) {
       player.enderItems = parseInventoryItems(enderMatch);
     }
-
   } catch (parseError) {
     console.error('Error parsing player NBT data:', parseError);
   }
@@ -952,33 +966,36 @@ interface ExecuteCommandBody {
   command: string;
 }
 
-app.post('/api/v1/servers/:name/console', async (req: Request<{ name: string }, {}, ExecuteCommandBody>, res: Response) => {
-  try {
-    const { name } = req.params;
-    const { command } = req.body;
+app.post(
+  '/api/v1/servers/:name/console',
+  async (req: Request<{ name: string }, {}, ExecuteCommandBody>, res: Response) => {
+    try {
+      const { name } = req.params;
+      const { command } = req.body;
 
-    if (!command) {
-      return res.status(400).json({
-        error: 'invalid_request',
-        message: 'Command is required',
+      if (!command) {
+        return res.status(400).json({
+          error: 'invalid_request',
+          message: 'Command is required',
+        });
+      }
+
+      const result = await k8sClient.executeCommand(name, command);
+
+      res.json({
+        command,
+        result,
+        serverName: name,
+      });
+    } catch (error: any) {
+      console.error('Failed to execute command:', error);
+      res.status(500).json({
+        error: 'command_failed',
+        message: error.message,
       });
     }
-
-    const result = await k8sClient.executeCommand(name, command);
-
-    res.json({
-      command,
-      result,
-      serverName: name,
-    });
-  } catch (error: any) {
-    console.error('Failed to execute command:', error);
-    res.status(500).json({
-      error: 'command_failed',
-      message: error.message,
-    });
   }
-});
+);
 
 // ==================== BACKUP ENDPOINTS ====================
 
@@ -989,32 +1006,35 @@ interface CreateBackupBody {
   tags?: string[];
 }
 
-app.post('/api/v1/servers/:name/backups', async (req: Request<{ name: string }, {}, CreateBackupBody>, res: Response) => {
-  try {
-    const { name: serverName } = req.params;
-    const { name, description, tags } = req.body;
+app.post(
+  '/api/v1/servers/:name/backups',
+  async (req: Request<{ name: string }, {}, CreateBackupBody>, res: Response) => {
+    try {
+      const { name: serverName } = req.params;
+      const { name, description, tags } = req.body;
 
-    const backup = await backupService.createBackup({
-      serverId: serverName,
-      tenantId: 'default-tenant', // TODO: Get from auth
-      name,
-      description,
-      tags,
-      isAutomatic: false,
-    });
+      const backup = await backupService.createBackup({
+        serverId: serverName,
+        tenantId: 'default-tenant', // TODO: Get from auth
+        name,
+        description,
+        tags,
+        isAutomatic: false,
+      });
 
-    res.status(201).json({
-      message: 'Backup creation initiated',
-      backup,
-    });
-  } catch (error: any) {
-    console.error('Failed to create backup:', error);
-    res.status(500).json({
-      error: 'backup_failed',
-      message: error.message,
-    });
+      res.status(201).json({
+        message: 'Backup creation initiated',
+        backup,
+      });
+    } catch (error: any) {
+      console.error('Failed to create backup:', error);
+      res.status(500).json({
+        error: 'backup_failed',
+        message: error.message,
+      });
+    }
   }
-});
+);
 
 // List backups for a server
 app.get('/api/v1/servers/:name/backups', async (req: Request, res: Response) => {
@@ -1117,11 +1137,13 @@ wss.on('connection', (ws: WebSocket) => {
   wsClients.add(ws);
 
   // Send current server list on connect
-  k8sClient.listMinecraftServers().then(servers => {
-    ws.send(JSON.stringify({
-      type: 'initial',
-      servers,
-    }));
+  k8sClient.listMinecraftServers().then((servers) => {
+    ws.send(
+      JSON.stringify({
+        type: 'initial',
+        servers,
+      })
+    );
   });
 
   ws.on('close', () => {
@@ -1142,7 +1164,7 @@ function broadcastServerUpdate(event: string, data: any) {
     timestamp: new Date().toISOString(),
   });
 
-  wsClients.forEach(client => {
+  wsClients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
       client.send(message);
     }
@@ -1167,7 +1189,7 @@ function broadcastMetricsUpdate(metrics: Map<string, ServerMetrics>) {
     timestamp: new Date().toISOString(),
   });
 
-  wsClients.forEach(client => {
+  wsClients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
       client.send(message);
     }
@@ -1186,7 +1208,7 @@ syncService.registerCallback({
       timestamp: new Date().toISOString(),
     });
 
-    wsClients.forEach(client => {
+    wsClients.forEach((client) => {
       if (client.readyState === WebSocket.OPEN) {
         client.send(message);
       }

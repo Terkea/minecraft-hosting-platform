@@ -5,16 +5,16 @@ import { ServerStatus } from '../models/index.js';
 // Maps K8s phase to our internal status
 function mapK8sPhaseToStatus(phase: string): ServerStatus {
   const phaseMap: Record<string, ServerStatus> = {
-    'Pending': ServerStatus.DEPLOYING,
-    'Creating': ServerStatus.DEPLOYING,
-    'Running': ServerStatus.RUNNING,
-    'Ready': ServerStatus.RUNNING,
-    'Stopped': ServerStatus.STOPPED,
-    'Stopping': ServerStatus.STOPPED,
-    'Failed': ServerStatus.FAILED,
-    'Error': ServerStatus.FAILED,
-    'Terminating': ServerStatus.TERMINATING,
-    'Deleting': ServerStatus.TERMINATING,
+    Pending: ServerStatus.DEPLOYING,
+    Creating: ServerStatus.DEPLOYING,
+    Running: ServerStatus.RUNNING,
+    Ready: ServerStatus.RUNNING,
+    Stopped: ServerStatus.STOPPED,
+    Stopping: ServerStatus.STOPPED,
+    Failed: ServerStatus.FAILED,
+    Error: ServerStatus.FAILED,
+    Terminating: ServerStatus.TERMINATING,
+    Deleting: ServerStatus.TERMINATING,
   };
   return phaseMap[phase] || ServerStatus.DEPLOYING;
 }
@@ -83,7 +83,7 @@ export class SyncService {
   private startPolling(): void {
     console.log('[SyncService] Starting polling mode (every 5 seconds)');
     this.syncInterval = setInterval(() => {
-      this.syncAll().catch(err => {
+      this.syncAll().catch((err) => {
         console.error('[SyncService] Polling sync failed:', err);
       });
     }, 5000);
@@ -96,7 +96,7 @@ export class SyncService {
       const servers = await this.k8sClient.listMinecraftServers();
 
       // Check for status changes and deletions
-      const currentNames = new Set(servers.map(s => s.name));
+      const currentNames = new Set(servers.map((s) => s.name));
 
       // Detect deleted servers
       for (const [name, oldServer] of this.serverCache) {
@@ -117,7 +117,7 @@ export class SyncService {
       }
 
       // Notify callbacks
-      this.callbacks.forEach(cb => cb.onSyncComplete(servers));
+      this.callbacks.forEach((cb) => cb.onSyncComplete(servers));
 
       return servers;
     } catch (error) {
@@ -169,7 +169,7 @@ export class SyncService {
     }
 
     // Notify callbacks
-    this.callbacks.forEach(cb => cb.onServerUpdate(server, type));
+    this.callbacks.forEach((cb) => cb.onServerUpdate(server, type));
   }
 
   private getEventType(watchType: string, oldPhase?: string, newPhase?: string): EventType {

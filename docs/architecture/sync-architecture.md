@@ -159,42 +159,45 @@ Sync Service (periodic) → Compare DB vs Cache → Detect Drift → Request Syn
 
 ## Event Types
 
-| Event | Source | Purpose |
-|-------|--------|---------|
-| `server.created` | API | New server requested |
-| `server.updated` | API | Server config changed |
-| `server.deleted` | API | Server deletion requested |
-| `server.status.changed` | API | Status transition requested |
-| `k8s.starting` | Operator | Pod is starting |
-| `k8s.running` | Operator | Pod is ready |
-| `k8s.stopped` | Operator | Pod is stopped |
-| `k8s.error` | Operator | Pod has error |
-| `sync.required` | Sync Service | Reconciliation needed |
-| `sync.complete` | Sync Service | Reconciliation done |
+| Event                   | Source       | Purpose                     |
+| ----------------------- | ------------ | --------------------------- |
+| `server.created`        | API          | New server requested        |
+| `server.updated`        | API          | Server config changed       |
+| `server.deleted`        | API          | Server deletion requested   |
+| `server.status.changed` | API          | Status transition requested |
+| `k8s.starting`          | Operator     | Pod is starting             |
+| `k8s.running`           | Operator     | Pod is ready                |
+| `k8s.stopped`           | Operator     | Pod is stopped              |
+| `k8s.error`             | Operator     | Pod has error               |
+| `sync.required`         | Sync Service | Reconciliation needed       |
+| `sync.complete`         | Sync Service | Reconciliation done         |
 
 ## State Mapping
 
-| K8s Phase | DB Status | Description |
-|-----------|-----------|-------------|
-| Starting | deploying | Server is starting up |
-| Running | running | Server is ready and accepting players |
-| Stopped | stopped | Server is intentionally stopped |
-| Error/Failed | failed | Server has encountered an error |
-| - | terminating | Server is being deleted |
+| K8s Phase    | DB Status   | Description                           |
+| ------------ | ----------- | ------------------------------------- |
+| Starting     | deploying   | Server is starting up                 |
+| Running      | running     | Server is ready and accepting players |
+| Stopped      | stopped     | Server is intentionally stopped       |
+| Error/Failed | failed      | Server has encountered an error       |
+| -            | terminating | Server is being deleted               |
 
 ## Fault Tolerance
 
 ### NATS Unavailable
+
 - Operator continues to work, just without publishing
 - Sync service falls back to periodic polling
 - System eventually consistent
 
 ### Database Unavailable
+
 - API returns errors to clients
 - Sync service queues updates
 - Resync on reconnection
 
 ### Pod Crashes
+
 - Kubernetes restarts automatically
 - Operator detects new state
 - Event published, DB updated
@@ -217,16 +220,19 @@ ENABLE_EVENTS=true
 ## Scaling Considerations
 
 ### Multiple API Instances
+
 - All instances subscribe to same NATS subjects
 - Load balanced WebSocket connections
 - Sticky sessions recommended for WS
 
 ### Multiple Operators
+
 - Use leader election
 - Only leader publishes events
 - Prevents duplicate events
 
 ### High Volume Events
+
 - NATS JetStream handles backpressure
 - Message deduplication by ID
 - Consumer groups for load distribution

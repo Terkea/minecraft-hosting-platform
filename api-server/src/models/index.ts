@@ -139,7 +139,7 @@ export const DEFAULT_SKUS: SKUConfiguration[] = [
     memoryGB: 8,
     storageGB: 50,
     maxPlayers: 50,
-    pricePerHour: 0.10,
+    pricePerHour: 0.1,
     pricePerMonth: 35,
     currency: 'USD',
     features: ['24/7 support', 'Real-time backups', 'DDoS protection', 'Custom domain'],
@@ -158,7 +158,13 @@ export const DEFAULT_SKUS: SKUConfiguration[] = [
     pricePerHour: 0.25,
     pricePerMonth: 99,
     currency: 'USD',
-    features: ['Dedicated support', 'Continuous backups', 'DDoS protection', 'Custom domain', 'Multi-server network'],
+    features: [
+      'Dedicated support',
+      'Continuous backups',
+      'DDoS protection',
+      'Custom domain',
+      'Multi-server network',
+    ],
     isActive: true,
   },
 ];

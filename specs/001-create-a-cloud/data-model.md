@@ -6,8 +6,10 @@
 ## Core Entities
 
 ### User Account
+
 **Purpose**: Customer account with associated servers, permissions, and billing
 **Fields**:
+
 - `id`: UUID (primary key)
 - `email`: string (unique, validated)
 - `name`: string
@@ -16,13 +18,16 @@
 - `updated_at`: timestamp
 
 **Validation Rules**:
+
 - Email must be valid format and unique
 - Name required, 1-100 characters
 - Tenant ID required for row-level security
 
 ### Server Instance
+
 **Purpose**: Deployed Minecraft server with resources, configurations, and lifecycle state
 **Fields**:
+
 - `id`: UUID (primary key)
 - `tenant_id`: UUID (foreign key to User Account)
 - `name`: string (user-defined server name)
@@ -40,6 +45,7 @@
 - `updated_at`: timestamp
 
 **Validation Rules**:
+
 - Name required, 1-50 characters, alphanumeric + hyphens
 - Status transitions: deploying → running/failed, running → stopped/terminating
 - Minecraft version must be supported version
@@ -47,6 +53,7 @@
 - Max players must be positive integer
 
 **State Transitions**:
+
 - `deploying` → `running` (successful deployment)
 - `deploying` → `failed` (deployment timeout/error)
 - `running` → `stopped` (user stop action)
@@ -55,8 +62,10 @@
 - `stopped` → `terminating` (user delete action)
 
 ### SKU Configuration
+
 **Purpose**: Predefined resource templates with CPU, memory, storage, and Minecraft settings
 **Fields**:
+
 - `id`: UUID (primary key)
 - `name`: string (display name, e.g., "Small Server")
 - `cpu_cores`: decimal (CPU allocation, e.g., 2.0)
@@ -69,6 +78,7 @@
 - `created_at`: timestamp
 
 **Validation Rules**:
+
 - Name required, unique, 1-50 characters
 - CPU cores must be positive decimal
 - Memory and storage must be positive integers
@@ -76,8 +86,10 @@
 - Default properties must be valid Minecraft settings
 
 ### Plugin/Mod Package
+
 **Purpose**: Installable server extensions with version information and dependencies
 **Fields**:
+
 - `id`: UUID (primary key)
 - `name`: string (plugin name)
 - `version`: string (semantic version, e.g., "7.2.15")
@@ -92,6 +104,7 @@
 - `updated_at`: timestamp
 
 **Validation Rules**:
+
 - Name required, 1-100 characters
 - Version must follow semantic versioning
 - Minecraft versions must be valid version strings
@@ -100,8 +113,10 @@
 - Dependencies must reference existing plugins
 
 ### Server Plugin Installation
+
 **Purpose**: Junction table tracking installed plugins per server
 **Fields**:
+
 - `id`: UUID (primary key)
 - `server_id`: UUID (foreign key to Server Instance)
 - `plugin_id`: UUID (foreign key to Plugin/Mod Package)
@@ -111,12 +126,15 @@
 - `updated_at`: timestamp
 
 **Relationships**:
+
 - Many-to-many between Server Instance and Plugin/Mod Package
 - Composite unique index on (server_id, plugin_id)
 
 ### Backup Snapshot
+
 **Purpose**: Point-in-time server data captures with metadata for restoration
 **Fields**:
+
 - `id`: UUID (primary key)
 - `server_id`: UUID (foreign key to Server Instance)
 - `backup_type`: enum (manual, scheduled, pre_termination)
@@ -129,6 +147,7 @@
 - `created_at`: timestamp
 
 **Validation Rules**:
+
 - Server ID must exist and user must have access
 - Storage path must be unique
 - Size bytes must be non-negative
@@ -136,8 +155,10 @@
 - Status transitions controlled by backup service
 
 ### Metrics Data
+
 **Purpose**: Real-time and historical performance data
 **Fields**:
+
 - `id`: UUID (primary key)
 - `server_id`: UUID (foreign key to Server Instance)
 - `metric_type`: enum (cpu_usage, memory_usage, player_count, tps, disk_usage)
@@ -146,6 +167,7 @@
 - `timestamp`: timestamp (when metric was collected)
 
 **Validation Rules**:
+
 - Server ID must exist
 - Value must be non-negative for most metrics
 - Timestamp must not be future date
@@ -172,6 +194,7 @@ Server Instance (1) ←→ (N) Metrics Data
 ## Indexing Strategy
 
 **Performance Indexes**:
+
 - `server_instances(tenant_id, status)` - tenant server listings
 - `backup_snapshots(server_id, created_at DESC)` - backup history
 - `metrics_data(server_id, metric_type, timestamp DESC)` - time-series queries
@@ -179,6 +202,7 @@ Server Instance (1) ←→ (N) Metrics Data
 - `plugins(minecraft_versions)` - compatibility filtering
 
 **Unique Constraints**:
+
 - `user_accounts(email)`
 - `server_instances(tenant_id, external_port)`
 - `sku_configurations(name)`

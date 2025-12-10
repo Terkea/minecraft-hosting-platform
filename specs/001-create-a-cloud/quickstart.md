@@ -16,12 +16,14 @@ This guide demonstrates the complete user journey from account creation to runni
 ### 1. Account Setup and SKU Selection (2 minutes)
 
 **Expected Flow**:
+
 1. Visit platform web interface
 2. Create account with email verification
 3. Browse available SKUs and pricing
 4. Select appropriate server size
 
 **Validation**:
+
 - [ ] Account creation completes within 30 seconds
 - [ ] Email verification link received and functional
 - [ ] SKU list displays CPU, memory, storage, and pricing
@@ -30,6 +32,7 @@ This guide demonstrates the complete user journey from account creation to runni
 ### 2. Server Deployment (3 minutes)
 
 **Expected Flow**:
+
 1. Navigate to "Deploy New Server"
 2. Configure server:
    - Server name: "quickstart-test"
@@ -40,6 +43,7 @@ This guide demonstrates the complete user journey from account creation to runni
 4. Monitor deployment status
 
 **Validation**:
+
 - [ ] Server deployment completes in <60 seconds
 - [ ] Real-time status updates during deployment
 - [ ] Server status changes: Deploying → Running
@@ -47,6 +51,7 @@ This guide demonstrates the complete user journey from account creation to runni
 - [ ] Connection details clearly displayed
 
 **Success Criteria**:
+
 ```bash
 # Test server connectivity
 telnet <server-endpoint> <port>
@@ -56,6 +61,7 @@ telnet <server-endpoint> <port>
 ### 3. Configuration Management (2 minutes)
 
 **Expected Flow**:
+
 1. Navigate to server settings
 2. Modify server properties:
    - Change difficulty to "hard"
@@ -65,12 +71,14 @@ telnet <server-endpoint> <port>
 4. Verify zero-downtime update
 
 **Validation**:
+
 - [ ] Configuration changes apply within 30 seconds
 - [ ] No player disconnections during update
 - [ ] Updated settings visible in server console/logs
 - [ ] Configuration history shows previous values
 
 **Success Criteria**:
+
 ```bash
 # Connect with Minecraft client before and during config change
 # Verify continuous connection without drops
@@ -79,6 +87,7 @@ telnet <server-endpoint> <port>
 ### 4. Plugin Installation (3 minutes)
 
 **Expected Flow**:
+
 1. Navigate to plugin marketplace
 2. Search for "WorldEdit" plugin
 3. Verify compatibility with Minecraft 1.20.1
@@ -86,6 +95,7 @@ telnet <server-endpoint> <port>
 5. Monitor installation status
 
 **Validation**:
+
 - [ ] Plugin marketplace loads with search functionality
 - [ ] Version compatibility clearly indicated
 - [ ] Plugin installation completes without server restart
@@ -93,6 +103,7 @@ telnet <server-endpoint> <port>
 - [ ] Plugin functionality available in-game
 
 **Success Criteria**:
+
 ```bash
 # In Minecraft client, test plugin functionality:
 # /worldedit:version
@@ -102,6 +113,7 @@ telnet <server-endpoint> <port>
 ### 5. Real-Time Monitoring (2 minutes)
 
 **Expected Flow**:
+
 1. Navigate to server dashboard
 2. Connect test player to server
 3. Monitor real-time metrics:
@@ -112,6 +124,7 @@ telnet <server-endpoint> <port>
 5. Observe metric changes
 
 **Validation**:
+
 - [ ] Dashboard updates metrics every 5-10 seconds
 - [ ] Player count accurately reflects connected players
 - [ ] CPU/memory metrics show realistic values (>0%, <100%)
@@ -119,6 +132,7 @@ telnet <server-endpoint> <port>
 - [ ] Historical graphs show recent activity
 
 **Success Criteria**:
+
 ```bash
 # Metrics should show:
 # - Player count: 1
@@ -131,6 +145,7 @@ telnet <server-endpoint> <port>
 ### 6. Backup and Restore (2 minutes)
 
 **Expected Flow**:
+
 1. Navigate to backup management
 2. Create manual backup with name "quickstart-backup"
 3. Wait for backup completion
@@ -139,6 +154,7 @@ telnet <server-endpoint> <port>
 6. Verify world state reverted to backup point
 
 **Validation**:
+
 - [ ] Manual backup creation initiates immediately
 - [ ] Backup completes within 60 seconds for test world
 - [ ] Backup list shows new backup with size and timestamp
@@ -147,6 +163,7 @@ telnet <server-endpoint> <port>
 - [ ] Player can reconnect after restore
 
 **Success Criteria**:
+
 ```bash
 # Before backup: Build a house at coordinates X, Z
 # After restore: House should not exist at those coordinates
@@ -155,6 +172,7 @@ telnet <server-endpoint> <port>
 ### 7. Server Lifecycle Management (1 minute)
 
 **Expected Flow**:
+
 1. Navigate to server controls
 2. Stop server using "Stop" button
 3. Verify server status changes to "Stopped"
@@ -163,6 +181,7 @@ telnet <server-endpoint> <port>
 6. Test player reconnection
 
 **Validation**:
+
 - [ ] Stop operation completes within 15 seconds
 - [ ] Status updates reflect actual server state
 - [ ] Start operation completes within 30 seconds
@@ -170,6 +189,7 @@ telnet <server-endpoint> <port>
 - [ ] World data persists through stop/start cycle
 
 **Success Criteria**:
+
 ```bash
 # After stop/start cycle:
 # - All world data intact
@@ -180,11 +200,13 @@ telnet <server-endpoint> <port>
 ## Performance Validation
 
 ### Response Time Requirements
+
 - [ ] Web interface pages load within 2 seconds
 - [ ] API operations respond within 200ms
 - [ ] Real-time updates have <5 second latency
 
 ### Deployment Performance
+
 - [ ] Server deployment: <60 seconds (target: <30 seconds)
 - [ ] Configuration updates: <30 seconds
 - [ ] Plugin installation: <60 seconds
@@ -193,18 +215,21 @@ telnet <server-endpoint> <port>
 ## Troubleshooting Common Issues
 
 ### Server Won't Start
+
 1. Check server logs in dashboard
 2. Verify SKU has sufficient resources
 3. Ensure Minecraft version is supported
 4. Contact support if deployment fails repeatedly
 
 ### Plugin Installation Fails
+
 1. Verify plugin compatibility with Minecraft version
 2. Check for conflicting plugins
 3. Review plugin dependency requirements
 4. Try installing dependencies first
 
 ### Performance Issues
+
 1. Monitor resource usage during peak activity
 2. Consider upgrading to larger SKU
 3. Review plugin performance impact
@@ -213,17 +238,20 @@ telnet <server-endpoint> <port>
 ## Success Criteria Summary
 
 **Deployment Performance**:
+
 - ✅ Server deployed in <60 seconds
 - ✅ Zero-downtime configuration updates in <30 seconds
 - ✅ Plugin installation without restart
 
 **User Experience**:
+
 - ✅ Intuitive web interface navigation
 - ✅ Real-time status updates and monitoring
 - ✅ Reliable backup/restore functionality
 - ✅ Complete server lifecycle control
 
 **Technical Performance**:
+
 - ✅ API response times <200ms
 - ✅ 99% server uptime during testing
 - ✅ Multi-tenant isolation (no cross-server interference)
@@ -240,6 +268,7 @@ After completing this quickstart:
 ## Feedback Collection
 
 Rate your experience (1-5 scale):
+
 - [ ] Deployment speed and reliability
 - [ ] Interface usability and intuitiveness
 - [ ] Plugin installation process

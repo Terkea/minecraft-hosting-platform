@@ -1,0 +1,39 @@
+# Semgrep ignore file
+# https://semgrep.dev/docs/ignoring-files-folders-code/
+
+# Dependencies
+node_modules/
+vendor/
+
+# Build outputs
+dist/
+bin/
+build/
+
+# Generated files
+**/zz_generated*.go
+**/*.gen.go
+
+# Test fixtures and mocks
+**/testdata/
+**/fixtures/
+**/*_test.go
+**/*.test.ts
+**/*.spec.ts
+
+# Documentation
+docs/
+*.md
+
+# Config files
+*.json
+*.yaml
+*.yml
+*.toml
+
+# Archive
+_archive/
+
+# IDE
+.idea/
+.vscode/

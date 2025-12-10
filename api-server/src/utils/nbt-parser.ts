@@ -78,7 +78,7 @@ export function parsePlayerData(name: string, rawData: string): PlayerData | nul
     const posMatch = dataStr.match(/Pos: \[([^\]]+)\]/);
     const position = { x: 0, y: 0, z: 0 };
     if (posMatch) {
-      const coords = posMatch[1].split(',').map(v => parseFloat(v.trim().replace('d', '')));
+      const coords = posMatch[1].split(',').map((v) => parseFloat(v.trim().replace('d', '')));
       if (coords.length >= 3) {
         position.x = Math.round(coords[0] * 100) / 100;
         position.y = Math.round(coords[1] * 100) / 100;
@@ -90,7 +90,7 @@ export function parsePlayerData(name: string, rawData: string): PlayerData | nul
     const rotMatch = dataStr.match(/Rotation: \[([^\]]+)\]/);
     const rotation = { yaw: 0, pitch: 0 };
     if (rotMatch) {
-      const rots = rotMatch[1].split(',').map(v => parseFloat(v.trim().replace('f', '')));
+      const rots = rotMatch[1].split(',').map((v) => parseFloat(v.trim().replace('f', '')));
       if (rots.length >= 2) {
         rotation.yaw = Math.round(rots[0] * 100) / 100;
         rotation.pitch = Math.round(rots[1] * 100) / 100;
@@ -196,7 +196,11 @@ function parseInventory(data: string, key: string): MinecraftItem[] {
 }
 
 // Parse the player list response to get player names
-export function parsePlayerList(response: string): { online: number; max: number; players: string[] } {
+export function parsePlayerList(response: string): {
+  online: number;
+  max: number;
+  players: string[];
+} {
   const match = response.match(/There are (\d+) of a max of (\d+) players online[:\s]*(.*)?/);
 
   if (!match) {
@@ -209,8 +213,8 @@ export function parsePlayerList(response: string): { online: number; max: number
 
   const players = playerStr
     .split(',')
-    .map(p => p.trim())
-    .filter(p => p.length > 0);
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0);
 
   return { online, max, players };
 }

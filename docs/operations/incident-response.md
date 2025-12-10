@@ -1,26 +1,31 @@
 # Incident Response Playbook
 
 ## Overview
+
 This document outlines the incident response procedures for the Minecraft hosting platform.
 
 ## Severity Levels
 
 ### Critical (P0)
+
 - **Definition**: Complete service outage or data loss
 - **Response Time**: 15 minutes
 - **Examples**: API down, database unavailable, security breach
 
 ### High (P1)
+
 - **Definition**: Significant functionality degradation
 - **Response Time**: 1 hour
 - **Examples**: High latency, partial service degradation
 
 ### Medium (P2)
+
 - **Definition**: Minor functionality issues
 - **Response Time**: 4 hours
 - **Examples**: Non-critical feature bugs
 
 ### Low (P3)
+
 - **Definition**: Cosmetic or minor issues
 - **Response Time**: 24 hours
 - **Examples**: UI inconsistencies
@@ -28,6 +33,7 @@ This document outlines the incident response procedures for the Minecraft hostin
 ## Response Procedures
 
 ### 1. Detection and Alerting
+
 ```bash
 # Check monitoring dashboards
 open https://grafana.minecraft-platform.com/dashboards
@@ -40,12 +46,14 @@ curl -f https://api.minecraft-platform.com/health
 ```
 
 ### 2. Initial Response (First 5 minutes)
+
 1. Acknowledge the incident
 2. Assess severity level
 3. Create incident channel: `#incident-YYYY-MM-DD-NNN`
 4. Begin investigation
 
 ### 3. Investigation Commands
+
 ```bash
 # Check pod status
 kubectl get pods -n minecraft-platform
@@ -66,6 +74,7 @@ kubectl get events -n minecraft-platform --sort-by=.metadata.creationTimestamp
 ### 4. Common Issues and Solutions
 
 #### API Server Down
+
 ```bash
 # Check deployment status
 kubectl get deployment api-server -n minecraft-platform
@@ -81,6 +90,7 @@ kubectl scale deployment api-server --replicas=10 -n minecraft-platform
 ```
 
 #### Database Connection Issues
+
 ```bash
 # Check database pod status
 kubectl get pods -l app=cockroachdb -n minecraft-platform
@@ -93,6 +103,7 @@ kubectl exec -it deployment/api-server -n minecraft-platform -- curl localhost:8
 ```
 
 #### High Memory Usage
+
 ```bash
 # Identify memory-intensive pods
 kubectl top pods -n minecraft-platform --sort-by=memory
@@ -106,16 +117,17 @@ kubectl patch hpa api-server-hpa -n minecraft-platform -p '{"spec":{"maxReplicas
 
 ## Escalation Matrix
 
-| Severity | Primary | Secondary | Manager |
-|----------|---------|-----------|---------|
-| P0 | On-call Engineer | Lead Engineer | Engineering Manager |
-| P1 | On-call Engineer | Lead Engineer | - |
-| P2 | Assigned Engineer | - | - |
-| P3 | Assigned Engineer | - | - |
+| Severity | Primary           | Secondary     | Manager             |
+| -------- | ----------------- | ------------- | ------------------- |
+| P0       | On-call Engineer  | Lead Engineer | Engineering Manager |
+| P1       | On-call Engineer  | Lead Engineer | -                   |
+| P2       | Assigned Engineer | -             | -                   |
+| P3       | Assigned Engineer | -             | -                   |
 
 ## Communication Templates
 
 ### Initial Alert
+
 ```
 🚨 INCIDENT ALERT 🚨
 Severity: P0
@@ -128,6 +140,7 @@ Incident Channel: #incident-2024-01-15-001
 ```
 
 ### Status Update
+
 ```
 📊 INCIDENT UPDATE
 Issue: Minecraft Platform API outage
@@ -138,6 +151,7 @@ ETA: 10 minutes
 ```
 
 ### Resolution
+
 ```
 ✅ INCIDENT RESOLVED
 Issue: Minecraft Platform API outage
@@ -150,12 +164,14 @@ Post-mortem: Will be conducted within 24 hours
 ## Post-Incident Procedures
 
 ### 1. Immediate (Within 1 hour)
+
 - [ ] Verify full service restoration
 - [ ] Update monitoring thresholds if needed
 - [ ] Document timeline in incident tracking system
 - [ ] Schedule post-mortem meeting
 
 ### 2. Post-Mortem (Within 24 hours)
+
 - [ ] Conduct blameless post-mortem
 - [ ] Identify root cause and contributing factors
 - [ ] Create action items for prevention
@@ -163,6 +179,7 @@ Post-mortem: Will be conducted within 24 hours
 - [ ] Share learnings with team
 
 ### 3. Follow-up (Within 1 week)
+
 - [ ] Implement prevention measures
 - [ ] Update monitoring and alerting
 - [ ] Conduct chaos engineering tests

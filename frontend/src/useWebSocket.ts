@@ -38,9 +38,7 @@ export function useWebSocket() {
 
           case 'deleted':
             if (message.server) {
-              setServers((prev) =>
-                prev.filter((s) => s.name !== message.server!.name)
-              );
+              setServers((prev) => prev.filter((s) => s.name !== message.server!.name));
             }
             break;
 

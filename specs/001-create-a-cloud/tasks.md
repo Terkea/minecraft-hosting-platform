@@ -4,6 +4,7 @@
 **Prerequisites**: plan.md (✓), research.md (✓), data-model.md (✓), contracts/ (✓)
 
 ## Execution Flow (main)
+
 ```
 1. Load plan.md from feature directory ✓
    → Extract: Go 1.21+, Gin, CockroachDB, Svelte, Kubebuilder
@@ -22,11 +23,14 @@
 ```
 
 ## Format: `[ID] [P?] Description`
+
 - **[P]**: Can run in parallel (different files, no dependencies)
 - Include exact file paths in descriptions
 
 ## Path Conventions
+
 **Web Application Structure** (from plan.md):
+
 - **Backend**: `backend/src/`, `backend/tests/`
 - **Frontend**: `frontend/src/`, `frontend/tests/`
 - **Kubernetes**: `k8s/operator/`, `k8s/manifests/`
@@ -60,6 +64,7 @@
   - **Files Created**: `.pre-commit-config.yaml`, `.prettierrc`, comprehensive linting rules for Go and TypeScript/Svelte
 
 **Phase 3.1 Success Metrics**:
+
 - ✅ **Structure**: Web application pattern correctly implemented (backend/frontend/k8s)
 - ✅ **Dependencies**: All technology stack decisions from research.md integrated
 - ✅ **Parallel Execution**: T002-T004 successfully executed in parallel
@@ -68,6 +73,7 @@
 - ✅ **Constitutional Compliance**: Library structure and real dependency testing prepared
 
 **Quality Enhancements Beyond Requirements**:
+
 - Development automation scripts for new developer onboarding
 - Custom Minecraft theme with server status indicators
 - Comprehensive security and performance tooling
@@ -80,6 +86,7 @@
 **Status**: All contract tests completed with 139 test scenarios, properly failing (404 responses) ✅
 
 ### Contract Tests (API Specification)
+
 - [x] **T005** [P] Contract test POST /servers in `backend/tests/contract/servers_post_test.go` ✅
   - ✅ Validate request schema for server deployment (13 test scenarios)
   - ✅ Assert response schema matches expected structure
@@ -153,6 +160,7 @@
   - ✅ CORS support and caching header validation
 
 **Phase 3.2 Success Metrics**:
+
 - ✅ **TDD Compliance**: All 139 test scenarios properly failing (404 responses) before implementation
 - ✅ **Complete API Coverage**: All 12 major endpoints with comprehensive schema validation
 - ✅ **Error Handling**: Validation, authentication, state conflicts, resource limits
@@ -161,6 +169,7 @@
 - ✅ **Security**: Authentication requirements, tenant isolation, authorization
 
 **Quality Achievements**:
+
 - 139 comprehensive test scenarios covering happy path and edge cases
 - Complete request/response schema definitions with validation rules
 - Proper TDD RED phase setup - all tests expect 404 until implementation
@@ -173,6 +182,7 @@
 **Summary**: Available in `specs/001-create-a-cloud/phase-3.3-summary.md`
 
 ### Data Models (Database Schema)
+
 - [x] **T017** [P] User Account model in `backend/src/models/user_account.go` ✅
   - ✅ Implemented User Account entity with validation rules
   - ✅ Added email validation, tenant isolation, audit timestamps
@@ -209,6 +219,7 @@
   - ✅ Included efficient querying for dashboard updates
 
 ### Service Layer (Business Logic Libraries)
+
 - [x] **T024** Server Lifecycle service in `backend/src/services/server_lifecycle.go` ✅
   - ✅ Implemented deploy, start, stop, delete server operations
   - ✅ Integrated with Kubernetes operator for actual server management
@@ -235,6 +246,7 @@
   - ✅ Integrated with Kubernetes for container updates
 
 ### API Endpoints (HTTP Handlers)
+
 - [x] **T029** POST /servers endpoint in `backend/src/api/servers.go` ✅
   - ✅ Implemented server deployment endpoint
   - ✅ Added request validation, SKU verification, and async deployment
@@ -256,6 +268,7 @@
   - ✅ Included installation status and configuration management
 
 **Phase 3.3 Achievement Summary**:
+
 - ✅ **Complete TDD Implementation**: All 16 tasks (T017-T032) fully implemented
 - ✅ **Models → Services → API**: Proper dependency flow maintained
 - ✅ **Contract Test Integration**: API endpoints follow Phase 3.2 specifications
@@ -283,6 +296,7 @@
   - ✅ Integrated with frontend dashboard for live updates
 
 **Phase 3.4 Infrastructure Success**:
+
 - ✅ **Complete Database Layer**: Production-ready CockroachDB integration with RLS
 - ✅ **Kubernetes Native**: Full CRD-based operator with reconciliation loop
 - ✅ **Real-time Platform**: WebSocket streaming for live dashboard updates
@@ -313,6 +327,7 @@
   - ✅ Built comprehensive backup lifecycle management UI
 
 **Phase 3.5 Frontend Success**:
+
 - ✅ **Modern UI/UX**: Clean, responsive design with Tailwind CSS
 - ✅ **Real-time Updates**: WebSocket integration for live data
 - ✅ **Complete Workflows**: End-to-end user flows for all operations
@@ -350,6 +365,7 @@
 ## Dependencies
 
 **Phase Dependencies**:
+
 - Setup (T001-T004) must complete before Tests
 - Tests (T005-T016) must complete and FAIL before Implementation
 - Models (T017-T023) before Services (T024-T028)
@@ -359,6 +375,7 @@
 - Everything before Polish (T039-T043)
 
 **Task-Level Dependencies**:
+
 - T024 (Server Lifecycle) requires T017, T018 (User Account, Server Instance models)
 - T029-T031 (Server endpoints) require T024 (Server Lifecycle service)
 - T033 (Database) blocks all service operations
@@ -369,6 +386,7 @@
 ## Parallel Execution Examples
 
 **Setup Phase (T002-T004)**:
+
 ```bash
 # Launch setup tasks in parallel - different projects
 Task: "Configure backend Go dependencies in backend/go.mod"
@@ -377,6 +395,7 @@ Task: "Configure linting and formatting tools"
 ```
 
 **Contract Tests (T005-T011)**:
+
 ```bash
 # Launch contract tests in parallel - different test files
 Task: "Contract test POST /servers in backend/tests/contract/servers_post_test.go"
@@ -386,6 +405,7 @@ Task: "Contract test POST /servers/{id}/plugins in backend/tests/contract/plugin
 ```
 
 **Data Models (T017-T023)**:
+
 ```bash
 # Launch model creation in parallel - different files
 Task: "User Account model in backend/src/models/user_account.go"
@@ -395,6 +415,7 @@ Task: "Plugin Package model in backend/src/models/plugin_package.go"
 ```
 
 **Frontend Components (T036-T038)**:
+
 ```bash
 # Launch frontend components in parallel - different files
 Task: "Server dashboard component in frontend/src/components/ServerDashboard.svelte"
@@ -405,11 +426,13 @@ Task: "Backup management component in frontend/src/components/BackupManager.svel
 ## Implementation Status
 
 ### Phase 3.1: Setup & Dependencies ✅ COMPLETED (T001-T004)
+
 **Completed**: 2025-09-13
 **Quality**: Exceeded requirements with comprehensive developer tooling
 **Ready for**: Phase 3.2 TDD implementation
 
 **Files Created**: 20+ configuration files including:
+
 - Backend: `go.mod`, `Makefile`, `.golangci.yml`, `.env.example`
 - Frontend: `package.json`, `svelte.config.js`, `tailwind.config.js`, `tsconfig.json`, styling
 - Project: `.pre-commit-config.yaml`, `scripts/setup-dev.sh`, comprehensive `.gitignore`
@@ -418,22 +441,27 @@ Task: "Backup management component in frontend/src/components/BackupManager.svel
 **Developer Experience**: Automated setup, parallel development scripts, comprehensive linting
 
 ### Phase 3.2: Tests First (TDD) ✅ COMPLETED
+
 **Completed**: All 139 test scenarios written and properly failing
 **Quality**: Complete API contract coverage with comprehensive validation
 
 ### Phase 3.3: Core Implementation ✅ COMPLETED
+
 **Completed**: All data models, services, and API endpoints implemented
 **Quality**: Full TDD implementation following contract specifications
 
 ### Phase 3.4: Integration & Infrastructure ✅ COMPLETED
+
 **Completed**: Database integration, Kubernetes operator, WebSocket streaming
 **Quality**: Production-ready infrastructure with multi-tenant security
 
 ### Phase 3.5: Frontend Implementation ✅ COMPLETED
+
 **Completed**: Complete Svelte UI with real-time updates and responsive design
 **Quality**: Modern user interface with TypeScript and component testing
 
 ### Phase 3.6: Polish & Performance ✅ COMPLETED
+
 **Completed**: Comprehensive testing, validation tools, and CLI interfaces
 **Quality**: Production-ready platform with performance validation
 
@@ -443,6 +471,7 @@ Task: "Backup management component in frontend/src/components/BackupManager.svel
 **Overview**: Complete enterprise-grade production platform with global scale, operational excellence, and bulletproof reliability.
 
 ### Production Infrastructure ✅ COMPLETE
+
 - [x] **T044** [P] Production Kubernetes deployment in `k8s/environments/production/` ✅
   - ✅ Configure production-grade Kubernetes manifests with Kustomize
   - ✅ Set up resource quotas, network policies, and security contexts
@@ -456,6 +485,7 @@ Task: "Backup management component in frontend/src/components/BackupManager.svel
   - ✅ Automated rollback capabilities and blue-green deployment
 
 ### Monitoring & Observability ✅ COMPLETE
+
 - [x] **T046** [P] Monitoring stack in `k8s/monitoring/` ✅
   - ✅ Deploy Prometheus, Grafana, Jaeger, and Alertmanager for comprehensive observability
   - ✅ Configure custom metrics, dashboards, and SLI/SLO monitoring
@@ -469,6 +499,7 @@ Task: "Backup management component in frontend/src/components/BackupManager.svel
   - ✅ Log retention policies and automated archival
 
 ### Security & Compliance ✅ COMPLETE
+
 - [x] **T048** [P] Security hardening in `k8s/security/` ✅
   - ✅ Network policies, Pod security standards, and admission controllers
   - ✅ Secret management with HashiCorp Vault or AWS Secrets Manager
@@ -482,6 +513,7 @@ Task: "Backup management component in frontend/src/components/BackupManager.svel
   - ✅ Runbooks for various failure scenarios and recovery steps
 
 ### Performance & Scale ✅ COMPLETE
+
 - [x] **T050** Database optimization in `backend/src/performance/` ✅
   - ✅ Query optimization, indexing strategies, and connection pooling
   - ✅ API response caching with Redis and CDN integration
@@ -501,6 +533,7 @@ Task: "Backup management component in frontend/src/components/BackupManager.svel
   - ✅ Regional failover and disaster recovery capabilities
 
 ### Operations & Reliability ✅ COMPLETE
+
 - [x] **T053** [P] Operational runbooks in `docs/operations/` ✅
   - ✅ Incident response procedures and escalation processes
   - ✅ Common troubleshooting guides and diagnostic tools
@@ -520,6 +553,7 @@ Task: "Backup management component in frontend/src/components/BackupManager.svel
   - ✅ Compliance auditing and regulatory requirement validation
 
 **Phase 4.0 Success Criteria**:
+
 - ✅ **Zero-downtime Deployments**: Automated pipeline with rollback capabilities
 - ✅ **99.9% Uptime SLA**: Comprehensive monitoring and incident response
 - ✅ **Auto-scaling**: Support for 10,000+ concurrent Minecraft servers
@@ -530,11 +564,13 @@ Task: "Backup management component in frontend/src/components/BackupManager.svel
 ## Implementation Status Update
 
 ### Phase 4.0: Production Deployment & Operations ✅ COMPLETED (T044-T055)
+
 **Completed**: 2025-09-15
 **Quality**: Complete enterprise-grade platform with global scale and operational excellence
 **Achievements**: All 12 production tasks (T044-T055) successfully implemented
 
 **Files Created**: 18+ production-ready files including:
+
 - Production K8s: 6 manifests (`k8s/environments/production/`)
 - CI/CD Pipeline: 2 workflows (`.github/workflows/`)
 - Monitoring Stack: 5 components (`k8s/monitoring/`)
@@ -543,6 +579,7 @@ Task: "Backup management component in frontend/src/components/BackupManager.svel
 - Validation Scripts: 2 tools (`scripts/`)
 
 **Production Capabilities**:
+
 - Zero-downtime blue-green deployments with automatic rollback
 - Real-time monitoring for 10,000+ concurrent Minecraft servers
 - Comprehensive security with zero-trust networking
@@ -552,6 +589,7 @@ Task: "Backup management component in frontend/src/components/BackupManager.svel
 ## Validation Checklist
 
 ### Phase 3.1 Validation ✅ COMPLETE
+
 - [x] **Project Structure**: Web application pattern (backend/frontend/k8s) implemented
 - [x] **Technology Stack**: All research.md decisions integrated (Go, Svelte, CockroachDB, Kubernetes)
 - [x] **Parallel Execution**: T002-T004 successfully executed simultaneously
@@ -560,6 +598,7 @@ Task: "Backup management component in frontend/src/components/BackupManager.svel
 - [x] **Quality Tooling**: Comprehensive linting, formatting, and security scanning configured
 
 ### Overall Project Validation
+
 - [x] All contracts have corresponding tests (T005-T011)
 - [x] All entities have model tasks (T017-T023)
 - [x] All tests come before implementation (Phase 3.2 before 3.3)

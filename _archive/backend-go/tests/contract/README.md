@@ -9,6 +9,7 @@ This directory contains contract tests that validate API endpoints against the O
 ## Current Status: ❌ FAILING (EXPECTED)
 
 All tests in this directory are designed to fail initially because:
+
 1. No API endpoints are implemented yet
 2. No route handlers are registered
 3. No database connections exist
@@ -19,10 +20,12 @@ All tests in this directory are designed to fail initially because:
 ## Test Files
 
 ### `servers_post_test.go`
+
 **Status**: ✅ Written, ❌ Failing (as required)
 **Endpoint**: `POST /servers`
 **Purpose**: Validates server deployment request/response schemas
 **Test Cases**:
+
 - Valid request returns expected schema
 - Missing required fields return 400 with error details
 - Invalid SKU ID returns 404
@@ -61,6 +64,7 @@ go test -tags=contract ./tests/contract/... -v
 ## Schema Validation
 
 These tests validate against the OpenAPI specification:
+
 - Request schema validation (required fields, types, constraints)
 - Response schema validation (structure, field types, relationships)
 - Error response schema validation (consistent error format)

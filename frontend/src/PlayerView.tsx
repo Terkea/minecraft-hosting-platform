@@ -1,8 +1,20 @@
 import { useState } from 'react';
 import {
-  ArrowLeft, Heart, Utensils, Sparkles, Map, Shield,
-  Wind, Zap, RefreshCw, ChevronDown, ChevronUp, Droplets,
-  Flame, CircleDot, Cookie
+  ArrowLeft,
+  Heart,
+  Utensils,
+  Sparkles,
+  Map,
+  Shield,
+  Wind,
+  Zap,
+  RefreshCw,
+  ChevronDown,
+  ChevronUp,
+  Droplets,
+  Flame,
+  CircleDot,
+  Cookie,
 } from 'lucide-react';
 import type { PlayerData, MinecraftItem, EquipmentItem } from './api';
 
@@ -56,7 +68,11 @@ const ItemIcon = ({ itemId, size = 32 }: { itemId: string; size?: number }) => {
         title={cleanId.replace(/_/g, ' ')}
       >
         <span className="text-[8px] text-gray-300 font-bold uppercase leading-none text-center px-0.5">
-          {cleanId.split('_').map(w => w[0]).join('').slice(0, 3)}
+          {cleanId
+            .split('_')
+            .map((w) => w[0])
+            .join('')
+            .slice(0, 3)}
         </span>
       </div>
     );
@@ -80,7 +96,7 @@ const ItemIcon = ({ itemId, size = 32 }: { itemId: string; size?: number }) => {
 const EquipmentSlot = ({
   item,
   label,
-  size = 'normal'
+  size = 'normal',
 }: {
   item: EquipmentItem | null;
   label: string;
@@ -111,7 +127,9 @@ const EquipmentSlot = ({
         {/* Hover tooltip */}
         {item && (
           <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 border border-gray-600 rounded text-xs text-white whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-10 pointer-events-none">
-            <div className="font-medium text-green-400">{item.id.replace('minecraft:', '').replace(/_/g, ' ')}</div>
+            <div className="font-medium text-green-400">
+              {item.id.replace('minecraft:', '').replace(/_/g, ' ')}
+            </div>
             <div className="text-gray-400">x{item.count}</div>
           </div>
         )}
@@ -126,7 +144,7 @@ const InventorySlot = ({
   item,
   slotNumber,
   isSelected = false,
-  size = 'normal'
+  size = 'normal',
 }: {
   item?: MinecraftItem;
   slotNumber: number;
@@ -141,7 +159,11 @@ const InventorySlot = ({
       className={`${slotSize} relative bg-gray-800/80 border-2 ${
         isSelected ? 'border-yellow-500' : 'border-gray-600'
       } rounded flex items-center justify-center group`}
-      title={item ? `${item.id.replace('minecraft:', '')} x${item.count} (Slot ${slotNumber})` : `Empty (Slot ${slotNumber})`}
+      title={
+        item
+          ? `${item.id.replace('minecraft:', '')} x${item.count} (Slot ${slotNumber})`
+          : `Empty (Slot ${slotNumber})`
+      }
     >
       {item ? (
         <>
@@ -159,7 +181,9 @@ const InventorySlot = ({
       {/* Hover tooltip */}
       {item && (
         <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 border border-gray-600 rounded text-xs text-white whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-10 pointer-events-none">
-          <div className="font-medium text-green-400">{item.id.replace('minecraft:', '').replace(/_/g, ' ')}</div>
+          <div className="font-medium text-green-400">
+            {item.id.replace('minecraft:', '').replace(/_/g, ' ')}
+          </div>
           <div className="text-gray-400">x{item.count}</div>
         </div>
       )}
@@ -179,12 +203,18 @@ const HealthBar = ({ health, maxHealth }: { health: number; maxHealth: number })
         <div key={i} className="relative w-5 h-5">
           {/* Empty heart background */}
           <svg viewBox="0 0 9 9" className="w-full h-full absolute text-gray-700">
-            <path fill="currentColor" d="M4.5 8.5L0.5 4.5C-0.5 3.5-0.5 1.5 1 0.5C2.5-0.5 4.5 1 4.5 1C4.5 1 6.5-0.5 8 0.5C9.5 1.5 9.5 3.5 8.5 4.5L4.5 8.5Z"/>
+            <path
+              fill="currentColor"
+              d="M4.5 8.5L0.5 4.5C-0.5 3.5-0.5 1.5 1 0.5C2.5-0.5 4.5 1 4.5 1C4.5 1 6.5-0.5 8 0.5C9.5 1.5 9.5 3.5 8.5 4.5L4.5 8.5Z"
+            />
           </svg>
           {/* Filled heart */}
           {i < fullHearts && (
             <svg viewBox="0 0 9 9" className="w-full h-full absolute text-red-500">
-              <path fill="currentColor" d="M4.5 8.5L0.5 4.5C-0.5 3.5-0.5 1.5 1 0.5C2.5-0.5 4.5 1 4.5 1C4.5 1 6.5-0.5 8 0.5C9.5 1.5 9.5 3.5 8.5 4.5L4.5 8.5Z"/>
+              <path
+                fill="currentColor"
+                d="M4.5 8.5L0.5 4.5C-0.5 3.5-0.5 1.5 1 0.5C2.5-0.5 4.5 1 4.5 1C4.5 1 6.5-0.5 8 0.5C9.5 1.5 9.5 3.5 8.5 4.5L4.5 8.5Z"
+              />
             </svg>
           )}
           {/* Half heart */}
@@ -192,10 +222,14 @@ const HealthBar = ({ health, maxHealth }: { health: number; maxHealth: number })
             <svg viewBox="0 0 9 9" className="w-full h-full absolute">
               <defs>
                 <clipPath id={`half-heart-${i}`}>
-                  <rect x="0" y="0" width="4.5" height="9"/>
+                  <rect x="0" y="0" width="4.5" height="9" />
                 </clipPath>
               </defs>
-              <path fill="#ef4444" clipPath={`url(#half-heart-${i})`} d="M4.5 8.5L0.5 4.5C-0.5 3.5-0.5 1.5 1 0.5C2.5-0.5 4.5 1 4.5 1C4.5 1 6.5-0.5 8 0.5C9.5 1.5 9.5 3.5 8.5 4.5L4.5 8.5Z"/>
+              <path
+                fill="#ef4444"
+                clipPath={`url(#half-heart-${i})`}
+                d="M4.5 8.5L0.5 4.5C-0.5 3.5-0.5 1.5 1 0.5C2.5-0.5 4.5 1 4.5 1C4.5 1 6.5-0.5 8 0.5C9.5 1.5 9.5 3.5 8.5 4.5L4.5 8.5Z"
+              />
             </svg>
           )}
         </div>
@@ -218,14 +252,14 @@ const HungerBar = ({ food }: { food: number }) => {
           <div key={i} className="relative w-5 h-5">
             {/* Empty drumstick background */}
             <svg viewBox="0 0 9 9" className="w-full h-full absolute text-gray-700">
-              <ellipse cx="6" cy="3" rx="2.5" ry="2" fill="currentColor"/>
-              <rect x="1" y="5" width="4" height="2" rx="1" fill="currentColor"/>
+              <ellipse cx="6" cy="3" rx="2.5" ry="2" fill="currentColor" />
+              <rect x="1" y="5" width="4" height="2" rx="1" fill="currentColor" />
             </svg>
             {/* Filled drumstick */}
             {idx < fullDrumsticks && (
               <svg viewBox="0 0 9 9" className="w-full h-full absolute text-orange-400">
-                <ellipse cx="6" cy="3" rx="2.5" ry="2" fill="currentColor"/>
-                <rect x="1" y="5" width="4" height="2" rx="1" fill="currentColor"/>
+                <ellipse cx="6" cy="3" rx="2.5" ry="2" fill="currentColor" />
+                <rect x="1" y="5" width="4" height="2" rx="1" fill="currentColor" />
               </svg>
             )}
             {/* Half drumstick */}
@@ -233,10 +267,17 @@ const HungerBar = ({ food }: { food: number }) => {
               <svg viewBox="0 0 9 9" className="w-full h-full absolute">
                 <defs>
                   <clipPath id={`half-food-${i}`}>
-                    <rect x="4.5" y="0" width="4.5" height="9"/>
+                    <rect x="4.5" y="0" width="4.5" height="9" />
                   </clipPath>
                 </defs>
-                <ellipse cx="6" cy="3" rx="2.5" ry="2" fill="#fb923c" clipPath={`url(#half-food-${i})`}/>
+                <ellipse
+                  cx="6"
+                  cy="3"
+                  rx="2.5"
+                  ry="2"
+                  fill="#fb923c"
+                  clipPath={`url(#half-food-${i})`}
+                />
               </svg>
             )}
           </div>
@@ -283,7 +324,7 @@ export function PlayerView({ player, onBack, onRefresh, isLoading }: PlayerViewP
 
   // Organize inventory into slots (0-8 hotbar, 9-35 main inventory)
   const getItemAtSlot = (inventory: MinecraftItem[], slot: number): MinecraftItem | undefined => {
-    return inventory.find(item => item.slot === slot);
+    return inventory.find((item) => item.slot === slot);
   };
 
   return (
@@ -329,12 +370,17 @@ export function PlayerView({ player, onBack, onRefresh, isLoading }: PlayerViewP
           <div className="flex-1">
             <div className="flex items-center gap-3 mb-2">
               <h2 className="text-3xl font-bold text-white">{player.name}</h2>
-              <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                player.gameMode === 0 ? 'bg-green-500/20 text-green-400' :
-                player.gameMode === 1 ? 'bg-yellow-500/20 text-yellow-400' :
-                player.gameMode === 2 ? 'bg-blue-500/20 text-blue-400' :
-                'bg-purple-500/20 text-purple-400'
-              }`}>
+              <span
+                className={`px-3 py-1 rounded-full text-sm font-medium ${
+                  player.gameMode === 0
+                    ? 'bg-green-500/20 text-green-400'
+                    : player.gameMode === 1
+                      ? 'bg-yellow-500/20 text-yellow-400'
+                      : player.gameMode === 2
+                        ? 'bg-blue-500/20 text-blue-400'
+                        : 'bg-purple-500/20 text-purple-400'
+                }`}
+              >
                 {player.gameModeName}
               </span>
             </div>
@@ -345,7 +391,9 @@ export function PlayerView({ player, onBack, onRefresh, isLoading }: PlayerViewP
               <div className="flex items-center gap-3">
                 <Heart className="w-5 h-5 text-red-500 flex-shrink-0" />
                 <HealthBar health={player.health} maxHealth={player.maxHealth} />
-                <span className="text-sm text-gray-400 ml-2">{player.health}/{player.maxHealth}</span>
+                <span className="text-sm text-gray-400 ml-2">
+                  {player.health}/{player.maxHealth}
+                </span>
               </div>
 
               {/* Hunger */}
@@ -375,17 +423,27 @@ export function PlayerView({ player, onBack, onRefresh, isLoading }: PlayerViewP
                 </div>
               </div>
               <div className="flex items-center gap-2 bg-gray-700/30 rounded px-3 py-1.5">
-                <Flame className={`w-4 h-4 ${player.fire > 0 ? 'text-orange-400' : 'text-gray-500'}`} />
+                <Flame
+                  className={`w-4 h-4 ${player.fire > 0 ? 'text-orange-400' : 'text-gray-500'}`}
+                />
                 <div>
                   <div className="text-[10px] text-gray-500">Fire</div>
-                  <div className={`font-medium text-sm ${player.fire > 0 ? 'text-orange-400' : 'text-gray-400'}`}>{player.fire}</div>
+                  <div
+                    className={`font-medium text-sm ${player.fire > 0 ? 'text-orange-400' : 'text-gray-400'}`}
+                  >
+                    {player.fire}
+                  </div>
                 </div>
               </div>
               <div className="flex items-center gap-2 bg-gray-700/30 rounded px-3 py-1.5">
-                <CircleDot className={`w-4 h-4 ${player.onGround ? 'text-green-400' : 'text-yellow-400'}`} />
+                <CircleDot
+                  className={`w-4 h-4 ${player.onGround ? 'text-green-400' : 'text-yellow-400'}`}
+                />
                 <div>
                   <div className="text-[10px] text-gray-500">Ground</div>
-                  <div className={`font-medium text-sm ${player.onGround ? 'text-green-400' : 'text-yellow-400'}`}>
+                  <div
+                    className={`font-medium text-sm ${player.onGround ? 'text-green-400' : 'text-yellow-400'}`}
+                  >
                     {player.onGround ? 'Yes' : 'No'}
                   </div>
                 </div>
@@ -394,7 +452,9 @@ export function PlayerView({ player, onBack, onRefresh, isLoading }: PlayerViewP
                 <Cookie className="w-4 h-4 text-yellow-400" />
                 <div>
                   <div className="text-[10px] text-gray-500">Saturation</div>
-                  <div className="text-yellow-400 font-medium text-sm">{player.foodSaturation.toFixed(1)}</div>
+                  <div className="text-yellow-400 font-medium text-sm">
+                    {player.foodSaturation.toFixed(1)}
+                  </div>
                 </div>
               </div>
             </div>
@@ -537,7 +597,6 @@ export function PlayerView({ player, onBack, onRefresh, isLoading }: PlayerViewP
           )}
         </div>
       )}
-
     </div>
   );
 }

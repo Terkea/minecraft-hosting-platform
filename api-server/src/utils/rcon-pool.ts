@@ -15,7 +15,10 @@ interface RconConnection {
   authenticated: boolean;
   lastUsed: number;
   requestId: number;
-  pendingRequests: Map<number, { resolve: (value: string) => void; reject: (error: Error) => void }>;
+  pendingRequests: Map<
+    number,
+    { resolve: (value: string) => void; reject: (error: Error) => void }
+  >;
   buffer: Buffer;
 }
 
@@ -55,7 +58,9 @@ export class RconConnectionPool extends EventEmitter {
     return packet;
   }
 
-  private parsePacket(buffer: Buffer): { size: number; id: number; type: number; body: string } | null {
+  private parsePacket(
+    buffer: Buffer
+  ): { size: number; id: number; type: number; body: string } | null {
     if (buffer.length < 4) return null;
 
     const size = buffer.readInt32LE(0);
@@ -68,7 +73,11 @@ export class RconConnectionPool extends EventEmitter {
     return { size, id, type, body };
   }
 
-  private async createConnection(host: string, port: number, password: string): Promise<RconConnection> {
+  private async createConnection(
+    host: string,
+    port: number,
+    password: string
+  ): Promise<RconConnection> {
     return new Promise((resolve, reject) => {
       const socket = new net.Socket();
       const connection: RconConnection = {
@@ -194,7 +203,11 @@ export class RconConnectionPool extends EventEmitter {
     return new Promise((resolve, reject) => {
       const checkInterval = setInterval(() => {
         for (const pooled of pool!) {
-          if (!pooled.inUse && pooled.connection.authenticated && pooled.connection.socket.writable) {
+          if (
+            !pooled.inUse &&
+            pooled.connection.authenticated &&
+            pooled.connection.socket.writable
+          ) {
             clearInterval(checkInterval);
             pooled.inUse = true;
             pooled.connection.lastUsed = Date.now();
@@ -226,7 +239,12 @@ export class RconConnectionPool extends EventEmitter {
     }
   }
 
-  async executeCommand(host: string, port: number, password: string, command: string): Promise<string> {
+  async executeCommand(
+    host: string,
+    port: number,
+    password: string,
+    command: string
+  ): Promise<string> {
     const connection = await this.getConnection(host, port, password);
 
     try {
@@ -279,7 +297,9 @@ export class RconConnectionPool extends EventEmitter {
 
         // Remove idle connections older than timeout
         if (!pooled.inUse && idleTime > this.connectionTimeout) {
-          console.log(`[RCON Pool] Closing idle connection to ${key} (idle: ${Math.round(idleTime / 1000)}s)`);
+          console.log(
+            `[RCON Pool] Closing idle connection to ${key} (idle: ${Math.round(idleTime / 1000)}s)`
+          );
           pooled.connection.socket.destroy();
           toRemove.push(i);
         }
@@ -311,7 +331,7 @@ export class RconConnectionPool extends EventEmitter {
       stats.push({
         server: key,
         connections: pool.length,
-        inUse: pool.filter(p => p.inUse).length,
+        inUse: pool.filter((p) => p.inUse).length,
       });
     }
 

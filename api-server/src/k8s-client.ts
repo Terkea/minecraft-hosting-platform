@@ -92,7 +92,10 @@ export class K8sClient {
     }
   }
 
-  async createMinecraftServer(name: string, spec: Partial<MinecraftServerSpec>): Promise<MinecraftServerStatus> {
+  async createMinecraftServer(
+    name: string,
+    spec: Partial<MinecraftServerSpec>
+  ): Promise<MinecraftServerStatus> {
     const serverSpec: MinecraftServerSpec = {
       serverId: spec.serverId || name,
       tenantId: spec.tenantId || 'default-tenant',
@@ -158,7 +161,7 @@ export class K8sClient {
       );
 
       const list = response.body as { items: MinecraftServer[] };
-      return list.items.map(item => this.parseServerStatus(item));
+      return list.items.map((item) => this.parseServerStatus(item));
     } catch (error: any) {
       if (error.response?.statusCode === 404) {
         // CRD might not exist yet, return empty list
@@ -218,7 +221,7 @@ export class K8sClient {
         undefined, // pretty
         undefined, // previous
         undefined, // sinceSeconds
-        lines      // tailLines
+        lines // tailLines
       );
       return response.body;
     } catch (error: any) {
@@ -248,7 +251,8 @@ export class K8sClient {
 
       // Merge updates
       if (updates.version) server.spec.version = updates.version;
-      if (updates.resources) server.spec.resources = { ...server.spec.resources, ...updates.resources };
+      if (updates.resources)
+        server.spec.resources = { ...server.spec.resources, ...updates.resources };
       if (updates.config) server.spec.config = { ...server.spec.config, ...updates.config };
 
       // Update resource
@@ -283,7 +287,9 @@ export class K8sClient {
       resources: {
         cpuRequest: resources.cpuLimit ? `${parseInt(resources.cpuLimit) / 2}m` : undefined,
         cpuLimit: resources.cpuLimit,
-        memoryRequest: resources.memoryLimit ? `${parseInt(resources.memoryLimit) / 2}Gi` : undefined,
+        memoryRequest: resources.memoryLimit
+          ? `${parseInt(resources.memoryLimit) / 2}Gi`
+          : undefined,
         memoryLimit: resources.memoryLimit,
         memory: resources.memory,
         storage: undefined,
@@ -427,7 +433,7 @@ export class K8sClient {
         ready: pod.status?.containerStatuses?.[0]?.ready || false,
         restartCount: pod.status?.containerStatuses?.[0]?.restartCount || 0,
         nodeName: pod.spec?.nodeName,
-        conditions: (pod.status?.conditions || []).map(c => ({
+        conditions: (pod.status?.conditions || []).map((c) => ({
           type: c.type,
           status: c.status,
           reason: c.reason,
@@ -500,7 +506,9 @@ export class K8sClient {
         return result;
       }
     } catch (rconError: any) {
-      console.log(`[RCON Pool] Connection failed, falling back to kubectl exec: ${rconError.message}`);
+      console.log(
+        `[RCON Pool] Connection failed, falling back to kubectl exec: ${rconError.message}`
+      );
     }
 
     // Fall back to kubectl exec if RCON pool fails
@@ -521,33 +529,35 @@ export class K8sClient {
         write(chunk: Buffer, encoding: string, callback: () => void) {
           stdout += chunk.toString();
           callback();
-        }
+        },
       });
 
       const stderrStream = new (require('stream').Writable)({
         write(chunk: Buffer, encoding: string, callback: () => void) {
           stderr += chunk.toString();
           callback();
-        }
+        },
       });
 
-      exec.exec(
-        this.namespace,
-        podName,
-        'minecraft-server',
-        ['rcon-cli', command],
-        stdoutStream,
-        stderrStream,
-        null,
-        false,
-        (status) => {
-          if (status.status === 'Success') {
-            resolve(stdout.trim() || 'Command executed successfully');
-          } else {
-            reject(new Error(stderr || status.message || 'Command execution failed'));
+      exec
+        .exec(
+          this.namespace,
+          podName,
+          'minecraft-server',
+          ['rcon-cli', command],
+          stdoutStream,
+          stderrStream,
+          null,
+          false,
+          (status) => {
+            if (status.status === 'Success') {
+              resolve(stdout.trim() || 'Command executed successfully');
+            } else {
+              reject(new Error(stderr || status.message || 'Command execution failed'));
+            }
           }
-        }
-      ).catch(reject);
+        )
+        .catch(reject);
     });
   }
 
@@ -585,11 +595,13 @@ export class K8sClient {
   }
 
   private sanitizeName(name: string): string {
-    return name
-      .toLowerCase()
-      .replace(/[^a-z0-9-]/g, '-')
-      .replace(/--+/g, '-')
-      .replace(/^-|-$/g, '')
-      .substring(0, 63) || 'minecraft-server';
+    return (
+      name
+        .toLowerCase()
+        .replace(/[^a-z0-9-]/g, '-')
+        .replace(/--+/g, '-')
+        .replace(/^-|-$/g, '')
+        .substring(0, 63) || 'minecraft-server'
+    );
   }
 }

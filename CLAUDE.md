@@ -12,6 +12,7 @@ Auto-generated from all feature plans. Last updated: 2025-09-13
 **Monitoring**: Prometheus + Grafana + Jaeger, NATS for real-time events
 
 ## Project Structure
+
 ```
 backend/
 ├── cmd/
@@ -47,6 +48,7 @@ k8s/
 ## Commands
 
 **Backend (Go)**:
+
 ```bash
 # Development
 go mod tidy                    # Update dependencies
@@ -69,6 +71,7 @@ go build -o bin/operator cmd/operator/
 ```
 
 **Frontend (Svelte)**:
+
 ```bash
 # Development
 npm install                   # Install dependencies
@@ -82,6 +85,7 @@ npm run test:e2e            # End-to-end tests
 ```
 
 **Kubernetes**:
+
 ```bash
 # Operator development
 make generate               # Generate CRD and deepcopy code
@@ -97,6 +101,7 @@ kubectl apply -f k8s/crds/ # Install custom resources
 ## Code Style
 
 **Go Standards**:
+
 - Use gofmt, golint, go vet
 - Structured logging with correlation IDs
 - Error handling with context
@@ -104,6 +109,7 @@ kubectl apply -f k8s/crds/ # Install custom resources
 - Direct framework usage (no unnecessary abstractions)
 
 **Svelte/TypeScript**:
+
 - TypeScript strict mode enabled
 - ESLint + Prettier for formatting
 - Component naming: PascalCase
@@ -113,6 +119,7 @@ kubectl apply -f k8s/crds/ # Install custom resources
 ## Recent Changes
 
 **001-create-a-cloud** (2025-09-13): Initial platform architecture
+
 - Added Go + Gin API backend with CockroachDB
 - Added Svelte frontend with real-time monitoring
 - Added Kubebuilder Kubernetes operator for server lifecycle

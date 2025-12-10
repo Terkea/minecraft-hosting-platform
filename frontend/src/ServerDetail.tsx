@@ -1,10 +1,39 @@
 import { useState, useEffect, useRef } from 'react';
 import {
-  ArrowLeft, Server, Terminal, Activity, RefreshCw,
-  Cpu, HardDrive, Clock, RotateCcw, Users, Wifi, WifiOff,
-  Send, Copy, Check, Square, Play, Heart, ChevronRight
+  ArrowLeft,
+  Server,
+  Terminal,
+  Activity,
+  RefreshCw,
+  Cpu,
+  HardDrive,
+  Clock,
+  RotateCcw,
+  Users,
+  Wifi,
+  WifiOff,
+  Send,
+  Copy,
+  Check,
+  Square,
+  Play,
+  Heart,
+  ChevronRight,
 } from 'lucide-react';
-import { getServer, getServerLogs, getServerMetrics, getPodStatus, executeCommand, stopServer, startServer, getServerPlayers, ServerMetricsResponse, PodStatus, PlayersResponse, PlayerData } from './api';
+import {
+  getServer,
+  getServerLogs,
+  getServerMetrics,
+  getPodStatus,
+  executeCommand,
+  stopServer,
+  startServer,
+  getServerPlayers,
+  ServerMetricsResponse,
+  PodStatus,
+  PlayersResponse,
+  PlayerData,
+} from './api';
 import { PlayerView } from './PlayerView';
 import type { Server as ServerType } from './types';
 
@@ -139,7 +168,7 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
           content: line,
           timestamp: new Date(),
         }));
-        setConsoleEntries(prev => [...prev, ...newEntries]);
+        setConsoleEntries((prev) => [...prev, ...newEntries]);
         setLastLogCount(logsData.length);
       }
     } catch (err) {
@@ -163,7 +192,7 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
       // Update selected player if still in list (use ref to get current value)
       const currentSelectedName = selectedPlayerNameRef.current;
       if (currentSelectedName) {
-        const updated = data.players.find(p => p.name === currentSelectedName);
+        const updated = data.players.find((p) => p.name === currentSelectedName);
         if (updated) {
           setSelectedPlayer(updated);
         }
@@ -182,7 +211,7 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
     setIsTogglingServer(true);
     try {
       await stopServer(serverName);
-      setServer(prev => prev ? { ...prev, phase: 'Stopping' } : null);
+      setServer((prev) => (prev ? { ...prev, phase: 'Stopping' } : null));
     } catch (err: any) {
       setError(err.message || 'Failed to stop server');
     } finally {
@@ -194,7 +223,7 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
     setIsTogglingServer(true);
     try {
       await startServer(serverName);
-      setServer(prev => prev ? { ...prev, phase: 'Starting' } : null);
+      setServer((prev) => (prev ? { ...prev, phase: 'Starting' } : null));
     } catch (err: any) {
       setError(err.message || 'Failed to start server');
     } finally {
@@ -211,19 +240,23 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
     setCommand('');
 
     // Add command entry
-    setConsoleEntries(prev => [
+    setConsoleEntries((prev) => [
       ...prev,
       { type: 'command', content: cmd, timestamp: new Date() },
     ]);
 
     try {
       const result = await executeCommand(serverName, cmd);
-      setConsoleEntries(prev => [
+      setConsoleEntries((prev) => [
         ...prev,
-        { type: 'result', content: result || 'Command executed successfully', timestamp: new Date() },
+        {
+          type: 'result',
+          content: result || 'Command executed successfully',
+          timestamp: new Date(),
+        },
       ]);
     } catch (err: any) {
-      setConsoleEntries(prev => [
+      setConsoleEntries((prev) => [
         ...prev,
         { type: 'error', content: err.message, timestamp: new Date() },
       ]);
@@ -313,7 +346,9 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
                 <div>
                   <h1 className="text-xl font-bold text-white">{server.name}</h1>
                   <div className="flex items-center gap-2">
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium text-white ${getStatusColor(server.phase)}`}>
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-xs font-medium text-white ${getStatusColor(server.phase)}`}
+                    >
                       {server.phase}
                     </span>
                     <span className="text-sm text-gray-400">{server.version}</span>
@@ -323,9 +358,11 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
             </div>
 
             <div className="flex items-center gap-4">
-              <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm ${
-                connected ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
-              }`}>
+              <div
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm ${
+                  connected ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
+                }`}
+              >
                 {connected ? <Wifi className="w-4 h-4" /> : <WifiOff className="w-4 h-4" />}
                 {connected ? 'Live' : 'Offline'}
               </div>
@@ -342,11 +379,17 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
               ) : (
                 <button
                   onClick={handleStopServer}
-                  disabled={isTogglingServer || server.phase?.toLowerCase() === 'stopping' || server.phase?.toLowerCase() === 'starting'}
+                  disabled={
+                    isTogglingServer ||
+                    server.phase?.toLowerCase() === 'stopping' ||
+                    server.phase?.toLowerCase() === 'starting'
+                  }
                   className="flex items-center gap-2 px-3 py-2 bg-yellow-600 hover:bg-yellow-700 disabled:bg-yellow-600/50 text-white rounded-lg transition-colors"
                 >
                   <Square className="w-4 h-4" />
-                  {isTogglingServer || server.phase?.toLowerCase() === 'stopping' ? 'Stopping...' : 'Stop Server'}
+                  {isTogglingServer || server.phase?.toLowerCase() === 'stopping'
+                    ? 'Stopping...'
+                    : 'Stop Server'}
                 </button>
               )}
 
@@ -397,7 +440,9 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
               <div className="space-y-3">
                 <div className="flex justify-between">
                   <span className="text-gray-400">Status</span>
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium text-white ${getStatusColor(server.phase)}`}>
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-xs font-medium text-white ${getStatusColor(server.phase)}`}
+                  >
                     {server.phase}
                   </span>
                 </div>
@@ -436,7 +481,8 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
                 <Users className="w-10 h-10 text-blue-400" />
                 <div>
                   <p className="text-3xl font-bold text-white">
-                    {server.playerCount || 0} <span className="text-lg text-gray-400">/ {server.maxPlayers || 20}</span>
+                    {server.playerCount || 0}{' '}
+                    <span className="text-lg text-gray-400">/ {server.maxPlayers || 20}</span>
                   </p>
                   <p className="text-sm text-gray-400">Online players</p>
                 </div>
@@ -463,9 +509,7 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
               <div className="flex items-center gap-4">
                 <Cpu className="w-10 h-10 text-yellow-400" />
                 <div>
-                  <p className="text-3xl font-bold text-white">
-                    {metrics?.cpu?.usage || '---'}
-                  </p>
+                  <p className="text-3xl font-bold text-white">{metrics?.cpu?.usage || '---'}</p>
                   <p className="text-sm text-gray-400">Current usage</p>
                 </div>
               </div>
@@ -505,10 +549,17 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
                 <h3 className="text-sm font-medium text-gray-400 mb-4">Pod Conditions</h3>
                 <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-4">
                   {podStatus.conditions.map((condition, idx) => (
-                    <div key={idx} className="flex items-center gap-2 p-2 bg-gray-700/50 rounded-lg">
-                      <div className={`w-2 h-2 rounded-full ${condition.status === 'True' ? 'bg-green-500' : 'bg-red-500'}`} />
+                    <div
+                      key={idx}
+                      className="flex items-center gap-2 p-2 bg-gray-700/50 rounded-lg"
+                    >
+                      <div
+                        className={`w-2 h-2 rounded-full ${condition.status === 'True' ? 'bg-green-500' : 'bg-red-500'}`}
+                      />
                       <span className="text-sm text-white">{condition.type}</span>
-                      <span className={`text-xs ${condition.status === 'True' ? 'text-green-400' : 'text-red-400'}`}>
+                      <span
+                        className={`text-xs ${condition.status === 'True' ? 'text-green-400' : 'text-red-400'}`}
+                      >
                         {condition.status}
                       </span>
                     </div>
@@ -537,7 +588,8 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
               className="h-[500px] overflow-auto p-4 font-mono text-sm"
               onScroll={(e) => {
                 const target = e.target as HTMLDivElement;
-                const isAtBottom = target.scrollHeight - target.scrollTop - target.clientHeight < 50;
+                const isAtBottom =
+                  target.scrollHeight - target.scrollTop - target.clientHeight < 50;
                 autoScrollRef.current = isAtBottom;
               }}
             >
@@ -547,14 +599,23 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
                 consoleEntries.map((entry, idx) => {
                   if (entry.type === 'log') {
                     return (
-                      <div key={idx} className="text-gray-300 whitespace-pre-wrap hover:bg-gray-700/50 px-2 py-0.5 rounded">
+                      <div
+                        key={idx}
+                        className="text-gray-300 whitespace-pre-wrap hover:bg-gray-700/50 px-2 py-0.5 rounded"
+                      >
                         {entry.content}
                       </div>
                     );
                   } else if (entry.type === 'command') {
                     return (
-                      <div key={idx} className="text-green-400 mt-2 px-2 py-1 bg-green-500/10 rounded">
-                        <span className="text-gray-500">[{entry.timestamp.toLocaleTimeString()}]</span> $ {entry.content}
+                      <div
+                        key={idx}
+                        className="text-green-400 mt-2 px-2 py-1 bg-green-500/10 rounded"
+                      >
+                        <span className="text-gray-500">
+                          [{entry.timestamp.toLocaleTimeString()}]
+                        </span>{' '}
+                        $ {entry.content}
                       </div>
                     );
                   } else if (entry.type === 'result') {
@@ -579,8 +640,10 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
               {server.phase?.toLowerCase() !== 'running' && (
                 <div className="mb-3 px-3 py-2 bg-yellow-500/20 border border-yellow-500/30 rounded-lg text-yellow-400 text-sm">
                   Console commands are only available when the server is running.
-                  {server.phase?.toLowerCase() === 'starting' && ' Please wait for the server to finish starting.'}
-                  {server.phase?.toLowerCase() === 'stopped' && ' Start the server to use console commands.'}
+                  {server.phase?.toLowerCase() === 'starting' &&
+                    ' Please wait for the server to finish starting.'}
+                  {server.phase?.toLowerCase() === 'stopped' &&
+                    ' Start the server to use console commands.'}
                 </div>
               )}
               <div className="flex gap-2">
@@ -588,15 +651,21 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
                   type="text"
                   value={command}
                   onChange={(e) => setCommand(e.target.value)}
-                  placeholder={server.phase?.toLowerCase() === 'running'
-                    ? "Enter command (e.g., list, say Hello, time set day)"
-                    : "Server must be running to execute commands"}
+                  placeholder={
+                    server.phase?.toLowerCase() === 'running'
+                      ? 'Enter command (e.g., list, say Hello, time set day)'
+                      : 'Server must be running to execute commands'
+                  }
                   disabled={isExecutingCommand || server.phase?.toLowerCase() !== 'running'}
                   className="flex-1 px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
                 />
                 <button
                   type="submit"
-                  disabled={isExecutingCommand || !command.trim() || server.phase?.toLowerCase() !== 'running'}
+                  disabled={
+                    isExecutingCommand ||
+                    !command.trim() ||
+                    server.phase?.toLowerCase() !== 'running'
+                  }
                   className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-600/50 disabled:cursor-not-allowed text-white rounded-lg transition-colors flex items-center gap-2"
                 >
                   <Send className="w-4 h-4" />
@@ -642,7 +711,9 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
                     <div className="text-center py-8">
                       <Users className="w-12 h-12 text-gray-600 mx-auto mb-3" />
                       <p className="text-gray-400">Server is not running</p>
-                      <p className="text-sm text-gray-500 mt-1">Start the server to see online players</p>
+                      <p className="text-sm text-gray-500 mt-1">
+                        Start the server to see online players
+                      </p>
                     </div>
                   ) : !playersData ? (
                     <div className="text-center py-8">
@@ -653,7 +724,9 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
                     <div className="text-center py-8">
                       <Users className="w-12 h-12 text-gray-600 mx-auto mb-3" />
                       <p className="text-gray-400">No players online</p>
-                      <p className="text-sm text-gray-500 mt-1">Players will appear here when they join</p>
+                      <p className="text-sm text-gray-500 mt-1">
+                        Players will appear here when they join
+                      </p>
                     </div>
                   ) : (
                     <div className="grid gap-2">
@@ -672,12 +745,17 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
                           <div className="flex-1 min-w-0">
                             <p className="text-white font-medium truncate">{player.name}</p>
                             <div className="flex items-center gap-3 mt-1">
-                              <span className={`text-xs px-2 py-0.5 rounded ${
-                                player.gameMode === 0 ? 'bg-green-500/20 text-green-400' :
-                                player.gameMode === 1 ? 'bg-yellow-500/20 text-yellow-400' :
-                                player.gameMode === 2 ? 'bg-blue-500/20 text-blue-400' :
-                                'bg-purple-500/20 text-purple-400'
-                              }`}>
+                              <span
+                                className={`text-xs px-2 py-0.5 rounded ${
+                                  player.gameMode === 0
+                                    ? 'bg-green-500/20 text-green-400'
+                                    : player.gameMode === 1
+                                      ? 'bg-yellow-500/20 text-yellow-400'
+                                      : player.gameMode === 2
+                                        ? 'bg-blue-500/20 text-blue-400'
+                                        : 'bg-purple-500/20 text-purple-400'
+                                }`}
+                              >
                                 {player.gameModeName}
                               </span>
                               <span className="flex items-center gap-1 text-xs text-gray-400">
