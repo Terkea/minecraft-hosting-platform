@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { Server, WebSocketMessage, ServerMetrics } from './types';
+import { Server, WebSocketMessage } from './types';
 
 export function useWebSocket() {
   const [servers, setServers] = useState<Server[]>([]);

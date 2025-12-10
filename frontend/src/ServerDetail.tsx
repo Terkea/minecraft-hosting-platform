@@ -2,9 +2,10 @@ import { useState, useEffect, useRef } from 'react';
 import {
   ArrowLeft, Server, Terminal, Activity, RefreshCw,
   Cpu, HardDrive, Clock, RotateCcw, Users, Wifi, WifiOff,
-  Send, Copy, Check, Square, Play
+  Send, Copy, Check, Square, Play, Heart, ChevronRight
 } from 'lucide-react';
-import { getServer, getServerLogs, getServerMetrics, getPodStatus, executeCommand, stopServer, startServer, ServerMetricsResponse, PodStatus } from './api';
+import { getServer, getServerLogs, getServerMetrics, getPodStatus, executeCommand, stopServer, startServer, getServerPlayers, ServerMetricsResponse, PodStatus, PlayersResponse, PlayerData } from './api';
+import { PlayerView } from './PlayerView';
 import type { Server as ServerType } from './types';
 
 interface ServerDetailProps {
@@ -13,7 +14,7 @@ interface ServerDetailProps {
   connected: boolean;
 }
 
-type Tab = 'overview' | 'console';
+type Tab = 'overview' | 'console' | 'players';
 
 interface ConsoleEntry {
   type: 'log' | 'command' | 'result' | 'error';
@@ -36,6 +37,16 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
   const [copiedAddress, setCopiedAddress] = useState(false);
   const consoleEndRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
+  const [playersData, setPlayersData] = useState<PlayersResponse | null>(null);
+  const [selectedPlayer, setSelectedPlayer] = useState<PlayerData | null>(null);
+  const [playersLoading, setPlayersLoading] = useState(false);
+  const playersFetchingRef = useRef(false);
+  const selectedPlayerNameRef = useRef<string | null>(null);
+
+  // Keep the ref in sync with the selected player
+  useEffect(() => {
+    selectedPlayerNameRef.current = selectedPlayer?.name || null;
+  }, [selectedPlayer]);
 
   // Initial data load
   useEffect(() => {
@@ -49,10 +60,20 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
       if (activeTab === 'console') {
         refreshLogs();
       }
+      if (activeTab === 'players') {
+        fetchPlayers();
+      }
     }, 3000);
 
     return () => clearInterval(interval);
   }, [serverName, activeTab]);
+
+  // Fetch players when switching to players tab
+  useEffect(() => {
+    if (activeTab === 'players') {
+      fetchPlayers(true); // Show loading on initial tab switch
+    }
+  }, [activeTab]);
 
   // Auto-scroll console only when new entries are added
   const prevEntriesLengthRef = useRef(0);
@@ -123,6 +144,37 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
       }
     } catch (err) {
       // Silently fail on refresh
+    }
+  };
+
+  const fetchPlayers = async (showLoading = false) => {
+    // Don't start a new request if one is already in progress
+    if (playersFetchingRef.current) return;
+    if (server?.phase?.toLowerCase() !== 'running') return;
+
+    playersFetchingRef.current = true;
+    // Only show loading indicator on initial load or manual refresh, not background updates
+    if (showLoading) {
+      setPlayersLoading(true);
+    }
+    try {
+      const data = await getServerPlayers(serverName);
+      setPlayersData(data);
+      // Update selected player if still in list (use ref to get current value)
+      const currentSelectedName = selectedPlayerNameRef.current;
+      if (currentSelectedName) {
+        const updated = data.players.find(p => p.name === currentSelectedName);
+        if (updated) {
+          setSelectedPlayer(updated);
+        }
+      }
+    } catch (err) {
+      // Silently fail on refresh
+    } finally {
+      playersFetchingRef.current = false;
+      if (showLoading) {
+        setPlayersLoading(false);
+      }
     }
   };
 
@@ -316,6 +368,7 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
             {[
               { id: 'overview', label: 'Overview', icon: Activity },
               { id: 'console', label: 'Console', icon: Terminal },
+              { id: 'players', label: 'Players', icon: Users },
             ].map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
@@ -551,6 +604,96 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
                 </button>
               </div>
             </form>
+          </div>
+        )}
+
+        {activeTab === 'players' && (
+          <div className="bg-gray-800/50 backdrop-blur border border-gray-700 rounded-xl">
+            {selectedPlayer ? (
+              <div className="p-6">
+                <PlayerView
+                  player={selectedPlayer}
+                  onBack={() => setSelectedPlayer(null)}
+                  onRefresh={() => fetchPlayers(true)}
+                  isLoading={playersLoading}
+                />
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700">
+                  <div className="flex items-center gap-3">
+                    <h3 className="text-sm font-medium text-gray-400">Online Players</h3>
+                    {playersData && (
+                      <span className="px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded-full text-xs">
+                        {playersData.online} / {playersData.max}
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => fetchPlayers(true)}
+                    disabled={playersLoading}
+                    className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${playersLoading ? 'animate-spin' : ''}`} />
+                  </button>
+                </div>
+                <div className="p-4">
+                  {server.phase?.toLowerCase() !== 'running' ? (
+                    <div className="text-center py-8">
+                      <Users className="w-12 h-12 text-gray-600 mx-auto mb-3" />
+                      <p className="text-gray-400">Server is not running</p>
+                      <p className="text-sm text-gray-500 mt-1">Start the server to see online players</p>
+                    </div>
+                  ) : !playersData ? (
+                    <div className="text-center py-8">
+                      <RefreshCw className="w-8 h-8 text-gray-500 animate-spin mx-auto mb-3" />
+                      <p className="text-gray-400">Loading players...</p>
+                    </div>
+                  ) : playersData.players.length === 0 ? (
+                    <div className="text-center py-8">
+                      <Users className="w-12 h-12 text-gray-600 mx-auto mb-3" />
+                      <p className="text-gray-400">No players online</p>
+                      <p className="text-sm text-gray-500 mt-1">Players will appear here when they join</p>
+                    </div>
+                  ) : (
+                    <div className="grid gap-2">
+                      {playersData.players.map((player) => (
+                        <button
+                          key={player.name}
+                          onClick={() => setSelectedPlayer(player)}
+                          className="flex items-center gap-4 p-3 bg-gray-700/50 hover:bg-gray-700 rounded-lg transition-colors text-left w-full"
+                        >
+                          <img
+                            src={`https://mc-heads.net/avatar/${player.name}/48`}
+                            alt={player.name}
+                            className="w-12 h-12 rounded-lg border-2 border-gray-600"
+                            style={{ imageRendering: 'pixelated' }}
+                          />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-white font-medium truncate">{player.name}</p>
+                            <div className="flex items-center gap-3 mt-1">
+                              <span className={`text-xs px-2 py-0.5 rounded ${
+                                player.gameMode === 0 ? 'bg-green-500/20 text-green-400' :
+                                player.gameMode === 1 ? 'bg-yellow-500/20 text-yellow-400' :
+                                player.gameMode === 2 ? 'bg-blue-500/20 text-blue-400' :
+                                'bg-purple-500/20 text-purple-400'
+                              }`}>
+                                {player.gameModeName}
+                              </span>
+                              <span className="flex items-center gap-1 text-xs text-gray-400">
+                                <Heart className="w-3 h-3 text-red-400" />
+                                {player.health}/{player.maxHealth}
+                              </span>
+                            </div>
+                          </div>
+                          <ChevronRight className="w-5 h-5 text-gray-500" />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         )}
       </main>

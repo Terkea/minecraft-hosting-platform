@@ -133,3 +133,76 @@ export async function startServer(name: string): Promise<void> {
     throw new Error(data.message || 'Failed to start server');
   }
 }
+
+// Player data types
+export interface MinecraftItem {
+  id: string;
+  count: number;
+  slot: number;
+}
+
+export interface EquipmentItem {
+  id: string;
+  count: number;
+}
+
+export interface PlayerEquipment {
+  head: EquipmentItem | null;
+  chest: EquipmentItem | null;
+  legs: EquipmentItem | null;
+  feet: EquipmentItem | null;
+  mainhand: EquipmentItem | null;
+  offhand: EquipmentItem | null;
+}
+
+export interface PlayerData {
+  name: string;
+  health: number;
+  maxHealth: number;
+  foodLevel: number;
+  foodSaturation: number;
+  xpLevel: number;
+  xpTotal: number;
+  gameMode: number;
+  gameModeName: string;
+  position: {
+    x: number;
+    y: number;
+    z: number;
+  };
+  dimension: string;
+  rotation: {
+    yaw: number;
+    pitch: number;
+  };
+  air: number;
+  fire: number;
+  onGround: boolean;
+  isFlying: boolean;
+  inventory: MinecraftItem[];
+  equipment: PlayerEquipment;
+  enderItems: MinecraftItem[];
+  selectedSlot: number;
+  abilities: {
+    invulnerable: boolean;
+    mayFly: boolean;
+    instabuild: boolean;
+    flying: boolean;
+    walkSpeed: number;
+    flySpeed: number;
+  };
+}
+
+export interface PlayersResponse {
+  online: number;
+  max: number;
+  players: PlayerData[];
+}
+
+export async function getServerPlayers(name: string): Promise<PlayersResponse> {
+  const response = await fetch(`${API_BASE}/servers/${name}/players`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch players');
+  }
+  return response.json();
+}

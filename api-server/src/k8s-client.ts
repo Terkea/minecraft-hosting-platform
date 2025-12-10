@@ -1,4 +1,5 @@
 import * as k8s from '@kubernetes/client-node';
+import { rconPool } from './utils/rcon-pool';
 
 // MinecraftServer CRD types
 export interface MinecraftServerSpec {
@@ -441,8 +442,73 @@ export class K8sClient {
     }
   }
 
-  // Execute command in server pod (for RCON/console)
+  // Get RCON endpoint for a server
+  // Returns host and port for direct TCP connection to RCON
+  async getRconEndpoint(name: string): Promise<{ host: string; port: number } | null> {
+    try {
+      const serviceName = `${name}-service`;
+      const service = await this.coreApi.readNamespacedService(serviceName, this.namespace);
+      const svc = service.body as any;
+
+      if (this.isRunningInCluster()) {
+        // Inside cluster: use service DNS name with internal port
+        const host = `${serviceName}.${this.namespace}.svc.cluster.local`;
+        return { host, port: 25575 };
+      } else {
+        // Outside cluster (local dev): use minikube IP with NodePort
+        // Find the RCON port NodePort from the service spec
+        const rconPort = svc.spec?.ports?.find((p: any) => p.port === 25575);
+        if (rconPort?.nodePort) {
+          // Use minikube IP - can be overridden via MINIKUBE_IP env var
+          const minikubeIp = process.env.MINIKUBE_IP || '192.168.49.2';
+          return { host: minikubeIp, port: rconPort.nodePort };
+        }
+        return null;
+      }
+    } catch (error: any) {
+      if (error.response?.statusCode === 404) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  // Check if running inside Kubernetes cluster
+  private isRunningInCluster(): boolean {
+    return !!process.env.KUBERNETES_SERVICE_HOST;
+  }
+
+  // Execute command via RCON (uses connection pool for efficiency)
+  // This maintains a persistent TCP connection, eliminating RCON log spam
   async executeCommand(name: string, command: string): Promise<string> {
+    // When running outside the cluster (local dev), skip RCON pool and use kubectl exec directly
+    // This avoids the 10 second timeout when RCON pool can't reach minikube
+    if (!this.isRunningInCluster()) {
+      return this.executeCommandViaExec(name, command);
+    }
+
+    // Inside cluster: try RCON pool first for efficiency
+    try {
+      const endpoint = await this.getRconEndpoint(name);
+      if (endpoint) {
+        const result = await rconPool.executeCommand(
+          endpoint.host,
+          endpoint.port,
+          'minecraft', // RCON password set in operator
+          command
+        );
+        return result;
+      }
+    } catch (rconError: any) {
+      console.log(`[RCON Pool] Connection failed, falling back to kubectl exec: ${rconError.message}`);
+    }
+
+    // Fall back to kubectl exec if RCON pool fails
+    return this.executeCommandViaExec(name, command);
+  }
+
+  // Execute command via kubectl exec (fallback method)
+  private async executeCommandViaExec(name: string, command: string): Promise<string> {
     const exec = new k8s.Exec(this.kc);
     const podName = `${name}-0`;
 
@@ -483,6 +549,25 @@ export class K8sClient {
         }
       ).catch(reject);
     });
+  }
+
+  // Execute multiple commands using the RCON pool
+  // The pool maintains persistent TCP connections, so no new RCON sessions are created
+  async executeCommands(name: string, commands: string[]): Promise<string[]> {
+    if (commands.length === 0) return [];
+
+    // Use RCON pool to execute all commands on the same persistent connection
+    const results: string[] = [];
+    for (const cmd of commands) {
+      try {
+        const result = await this.executeCommand(name, cmd);
+        results.push(result);
+      } catch (error) {
+        console.error(`Failed to execute command "${cmd}":`, error);
+        results.push('');
+      }
+    }
+    return results;
   }
 
   private parseServerStatus(server: MinecraftServer): MinecraftServerStatus {

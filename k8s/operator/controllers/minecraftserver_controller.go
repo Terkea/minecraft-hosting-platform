@@ -99,7 +99,8 @@ func (r *MinecraftServerReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	logger.Info("Successfully reconciled MinecraftServer")
-	return ctrl.Result{RequeueAfter: 60 * time.Second}, nil
+	// Reconcile every 2 minutes to reduce RCON spam from player count queries
+	return ctrl.Result{RequeueAfter: 120 * time.Second}, nil
 }
 
 // handleDeletion handles the deletion of MinecraftServer resources
@@ -177,6 +178,12 @@ func (r *MinecraftServerReconciler) reconcileService(ctx context.Context, server
 					Protocol:   corev1.ProtocolTCP,
 					Port:       25565,
 					TargetPort: intstr.FromInt(25565),
+				},
+				{
+					Name:       "rcon",
+					Protocol:   corev1.ProtocolTCP,
+					Port:       25575,
+					TargetPort: intstr.FromInt(25575),
 				},
 			},
 			Type: corev1.ServiceTypeLoadBalancer,
@@ -257,6 +264,10 @@ func (r *MinecraftServerReconciler) buildPodSpec(server *minecraftv1.MinecraftSe
 				Ports: []corev1.ContainerPort{
 					{
 						ContainerPort: 25565,
+						Protocol:      corev1.ProtocolTCP,
+					},
+					{
+						ContainerPort: 25575,
 						Protocol:      corev1.ProtocolTCP,
 					},
 				},
