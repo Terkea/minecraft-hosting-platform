@@ -1,5 +1,5 @@
 import { K8sClient, MinecraftServerStatus } from '../k8s-client.js';
-import { getEventBus, EventType, K8sStateEvent } from '../events/event-bus.js';
+import { getEventBus, EventType } from '../events/event-bus.js';
 import { ServerStatus } from '../models/index.js';
 
 // Maps K8s phase to our internal status
@@ -131,7 +131,8 @@ export class SyncService {
     console.log(`[SyncService] Watch event: ${type} for ${server.name}`);
 
     const oldServer = this.serverCache.get(server.name);
-    const internalStatus = mapK8sPhaseToStatus(server.phase);
+    // Map K8s phase to internal status for potential future use
+    const _internalStatus = mapK8sPhaseToStatus(server.phase);
 
     // Update cache
     if (type === 'DELETED') {

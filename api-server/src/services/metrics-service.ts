@@ -80,7 +80,7 @@ export class MetricsService {
       const pods = podsResponse.body.items;
 
       // Get pod metrics (requires metrics-server)
-      let podMetricsMap = new Map<string, any>();
+      const podMetricsMap = new Map<string, any>();
       try {
         const metrics = await this.metricsApi.getPodMetrics(this.namespace);
         for (const item of metrics.items) {

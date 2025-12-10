@@ -1,4 +1,5 @@
 import * as k8s from '@kubernetes/client-node';
+import { Writable } from 'stream';
 import { rconPool } from './utils/rcon-pool.js';
 
 // MinecraftServer CRD types
@@ -525,15 +526,15 @@ export class K8sClient {
       let stderr = '';
 
       // Create writable streams to capture output
-      const stdoutStream = new (require('stream').Writable)({
-        write(chunk: Buffer, encoding: string, callback: () => void) {
+      const stdoutStream = new Writable({
+        write(chunk: Buffer, _encoding: string, callback: () => void) {
           stdout += chunk.toString();
           callback();
         },
       });
 
-      const stderrStream = new (require('stream').Writable)({
-        write(chunk: Buffer, encoding: string, callback: () => void) {
+      const stderrStream = new Writable({
+        write(chunk: Buffer, _encoding: string, callback: () => void) {
           stderr += chunk.toString();
           callback();
         },

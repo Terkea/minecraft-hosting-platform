@@ -2,11 +2,11 @@ import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import { WebSocketServer, WebSocket } from 'ws';
 import { createServer } from 'http';
-import { K8sClient, MinecraftServerSpec, MinecraftServerStatus } from './k8s-client.js';
+import { K8sClient, MinecraftServerSpec } from './k8s-client.js';
 import { SyncService } from './services/sync-service.js';
 import { BackupService } from './services/backup-service.js';
 import { MetricsService, ServerMetrics } from './services/metrics-service.js';
-import { getEventBus, EventType } from './events/event-bus.js';
+import { getEventBus } from './events/event-bus.js';
 
 const app = express();
 const server = createServer(app);
@@ -751,7 +751,7 @@ function getMinimalPlayerData(playerName: string): any {
 }
 
 // Parse player NBT data from "data get entity" command
-function parsePlayerData(playerName: string, nbtString: string): any {
+function _parsePlayerData(playerName: string, nbtString: string): any {
   const player: any = {
     name: playerName,
     health: 20,
@@ -957,7 +957,7 @@ function parseInventoryItem(itemStr: string): any | null {
   return {
     slot: parseInt(slotMatch[1], 10),
     id: idMatch[1],
-    count: count,
+    count,
   };
 }
 
@@ -1137,7 +1137,7 @@ wss.on('connection', (ws: WebSocket) => {
   wsClients.add(ws);
 
   // Send current server list on connect
-  k8sClient.listMinecraftServers().then((servers) => {
+  void k8sClient.listMinecraftServers().then((servers) => {
     ws.send(
       JSON.stringify({
         type: 'initial',
