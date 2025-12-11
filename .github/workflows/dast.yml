@@ -125,33 +125,36 @@ jobs:
 
       - name: ZAP Baseline Scan
         if: steps.scan-config.outputs.scan_type == 'baseline'
-        uses: zaproxy/action-baseline@v0.11.0
+        uses: zaproxy/action-baseline@v0.15.0
         with:
           target: ${{ steps.scan-config.outputs.target }}
           rules_file_name: ".github/zap-rules.tsv"
           cmd_options: "-a -j -l WARN"
           fail_action: true
           allow_issue_writing: false
+          artifact_name: zap-baseline-report
 
       - name: ZAP API Scan
         if: steps.scan-config.outputs.scan_type == 'api'
-        uses: zaproxy/action-api-scan@v0.7.0
+        uses: zaproxy/action-api-scan@v0.11.0
         with:
           target: ${{ steps.scan-config.outputs.target }}/api/v1/
           rules_file_name: ".github/zap-rules.tsv"
           cmd_options: "-a -j -l WARN"
           fail_action: true
           allow_issue_writing: false
+          artifact_name: zap-api-report
 
       - name: ZAP Full Scan
         if: steps.scan-config.outputs.scan_type == 'full'
-        uses: zaproxy/action-full-scan@v0.9.0
+        uses: zaproxy/action-full-scan@v0.13.0
         with:
           target: ${{ steps.scan-config.outputs.target }}
           rules_file_name: ".github/zap-rules.tsv"
           cmd_options: "-a -j -l WARN"
           fail_action: true
           allow_issue_writing: false
+          artifact_name: zap-full-report
 
       - name: Stop API Server
         if: always()
