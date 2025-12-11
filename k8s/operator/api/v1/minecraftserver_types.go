@@ -287,7 +287,7 @@ func (m *MinecraftServer) Default() {
 		m.Spec.Config.MOTD = "A Minecraft Server powered by Kubernetes"
 	}
 
-	if m.Spec.Config.OnlineMode == false && m.ObjectMeta.Annotations == nil {
+	if !m.Spec.Config.OnlineMode && m.ObjectMeta.Annotations == nil {
 		// Default to true for online mode
 		m.Spec.Config.OnlineMode = true
 	}

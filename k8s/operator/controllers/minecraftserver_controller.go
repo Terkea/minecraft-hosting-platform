@@ -231,9 +231,9 @@ func (r *MinecraftServerReconciler) reconcileStatefulSet(ctx context.Context, se
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: map[string]string{
-						"app":        server.Name,
-						"tenant":     server.Spec.TenantID,
-						"server-id":  server.Spec.ServerID,
+						"app":       server.Name,
+						"tenant":    server.Spec.TenantID,
+						"server-id": server.Spec.ServerID,
 					},
 				},
 				Spec: r.buildPodSpec(server),

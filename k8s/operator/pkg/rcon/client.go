@@ -23,7 +23,7 @@ type Client struct {
 }
 
 // Connect establishes a connection to an RCON server
-func Connect(address string, password string, timeout time.Duration) (*Client, error) {
+func Connect(address, password string, timeout time.Duration) (*Client, error) {
 	conn, err := net.DialTimeout("tcp", address, timeout)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect: %w", err)
@@ -163,14 +163,14 @@ func (c *Client) readPacket() (int32, int32, string, error) {
 
 // PlayerInfo contains player count information
 type PlayerInfo struct {
-	Online    int
-	Max       int
-	Players   []string
+	Online  int
+	Max     int
+	Players []string
 }
 
 // GetPlayerInfo queries the server and parses player count
 // Response format: "There are X of a max of Y players online: player1, player2"
-func GetPlayerInfo(address string, password string) (*PlayerInfo, error) {
+func GetPlayerInfo(address, password string) (*PlayerInfo, error) {
 	client, err := Connect(address, password, 5*time.Second)
 	if err != nil {
 		return nil, err
@@ -199,14 +199,14 @@ func ParsePlayerList(response string) (*PlayerInfo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse online player count: %w", err)
 	}
-	max, err := strconv.Atoi(matches[2])
+	maxPlayers, err := strconv.Atoi(matches[2])
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse max player count: %w", err)
 	}
 
 	info := &PlayerInfo{
 		Online:  online,
-		Max:     max,
+		Max:     maxPlayers,
 		Players: []string{},
 	}
 
@@ -214,7 +214,7 @@ func ParsePlayerList(response string) (*PlayerInfo, error) {
 	colonIdx := bytes.IndexByte([]byte(response), ':')
 	if colonIdx > 0 && colonIdx < len(response)-1 {
 		playerStr := response[colonIdx+1:]
-		if len(playerStr) > 0 {
+		if playerStr != "" {
 			// Split by comma and trim
 			for _, name := range bytes.Split([]byte(playerStr), []byte(",")) {
 				trimmed := bytes.TrimSpace(name)

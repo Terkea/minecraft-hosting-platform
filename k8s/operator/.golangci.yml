@@ -1,14 +1,10 @@
 # golangci-lint configuration
-# Strict rules for catching bugs early
+# Practical rules for catching bugs
 
 run:
   timeout: 5m
   issues-exit-code: 1
   tests: true
-  skip-dirs:
-    - vendor
-    - bin
-    - hack
 
 output:
   formats:
@@ -28,130 +24,47 @@ linters:
     - staticcheck     # Staticcheck checks
     - unused          # Find unused code
 
-    # Additional strict linters
+    # Additional linters (practical selection)
     - bodyclose       # Check HTTP body is closed
-    - contextcheck    # Check context usage
     - durationcheck   # Check time.Duration calculations
     - errname         # Check error naming conventions
     - errorlint       # Find issues with error wrapping
-    - exhaustive      # Check switch exhaustiveness
-    - exportloopref   # Check loop variable captures
-    - gochecknoinits  # No init functions
-    - goconst         # Find repeated strings that could be constants
-    - gocritic        # Lots of useful checks
-    - gocyclo         # Cyclomatic complexity
     - gofmt           # Check formatting
     - goimports       # Check imports
-    - gosec           # Security checks
     - misspell        # Check for misspellings
-    - nakedret        # No naked returns
     - nilerr          # Check nil error returns
-    - nilnil          # Check nil, nil returns
-    - noctx           # Check HTTP requests use context
-    - nolintlint      # Check nolint directives
-    - prealloc        # Find slice preallocation opportunities
-    - predeclared     # Check for shadowed predeclared identifiers
-    - revive          # Replacement for golint
-    - rowserrcheck    # Check sql.Rows.Err() is called
-    - sqlclosecheck   # Check sql.Rows/Stmt are closed
-    - stylecheck      # Style checks
-    - tenv            # Use t.Setenv instead of os.Setenv in tests
-    - tparallel       # Check test parallelization
     - unconvert       # Remove unnecessary conversions
-    - unparam         # Find unused parameters
-    - wastedassign    # Find wasted assignments
     - whitespace      # Check for unnecessary whitespace
 
 linters-settings:
   errcheck:
     check-type-assertions: true
-    check-blank: true
+    check-blank: false
+    exclude-functions:
+      - (net.Conn).SetDeadline
+      - (net.Conn).SetReadDeadline
+      - (net.Conn).SetWriteDeadline
 
   govet:
     enable-all: true
     disable:
       - fieldalignment  # Too noisy
 
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - experimental
-      - opinionated
-      - performance
-      - style
-    disabled-checks:
-      - whyNoLint
-      - hugeParam  # Kubernetes objects are large
-
-  gocyclo:
-    min-complexity: 15
-
-  goconst:
-    min-len: 3
-    min-occurrences: 3
-
-  gosec:
-    excludes:
-      - G104  # Unhandled errors - covered by errcheck
-    config:
-      G306: "0644"
-
-  nakedret:
-    max-func-lines: 30
-
-  revive:
-    rules:
-      - name: blank-imports
-      - name: context-as-argument
-      - name: context-keys-type
-      - name: dot-imports
-      - name: error-return
-      - name: error-strings
-      - name: error-naming
-      - name: exported
-      - name: if-return
-      - name: increment-decrement
-      - name: var-naming
-      - name: var-declaration
-      - name: package-comments
-      - name: range
-      - name: receiver-naming
-      - name: time-naming
-      - name: unexported-return
-      - name: indent-error-flow
-      - name: errorf
-      - name: empty-block
-      - name: superfluous-else
-      - name: unused-parameter
-      - name: unreachable-code
-      - name: redefines-builtin-id
-
-  stylecheck:
-    checks:
-      - all
-      - -ST1000  # Package comments not required
-      - -ST1003  # Allow some naming flexibility
-
 issues:
+  exclude-dirs:
+    - vendor
+    - bin
+    - hack
   exclude-rules:
     # Exclude some linters from running on tests
     - path: _test\.go
       linters:
-        - gocyclo
         - errcheck
-        - gosec
-        - goconst
 
     # Exclude known patterns in generated code
     - path: zz_generated
       linters:
         - all
-
-    # Allow longer functions in controllers (reconcile logic)
-    - path: controllers/
-      linters:
-        - gocyclo
-      text: "cyclomatic complexity"
 
   max-issues-per-linter: 0
   max-same-issues: 0

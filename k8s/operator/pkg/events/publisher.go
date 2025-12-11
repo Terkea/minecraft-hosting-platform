@@ -29,10 +29,10 @@ type K8sStateEvent struct {
 
 // EventPublisher publishes events to NATS
 type EventPublisher struct {
-	conn     *nats.Conn
-	js       nats.JetStreamContext
-	natsURL  string
-	enabled  bool
+	conn    *nats.Conn
+	js      nats.JetStreamContext
+	natsURL string
+	enabled bool
 }
 
 // EventPublisherConfig configuration for event publisher
@@ -87,12 +87,12 @@ func NewEventPublisher(config *EventPublisherConfig) (*EventPublisher, error) {
 
 	// Create stream if it doesn't exist
 	_, err = js.AddStream(&nats.StreamConfig{
-		Name:       config.StreamName,
-		Subjects:   []string{"server.*", "k8s.*", "sync.*"},
-		Retention:  nats.LimitsPolicy,
-		MaxAge:     24 * time.Hour,
-		MaxMsgs:    100000,
-		Storage:    nats.FileStorage,
+		Name:      config.StreamName,
+		Subjects:  []string{"server.*", "k8s.*", "sync.*"},
+		Retention: nats.LimitsPolicy,
+		MaxAge:    24 * time.Hour,
+		MaxMsgs:   100000,
+		Storage:   nats.FileStorage,
 	})
 	if err != nil && !errors.Is(err, nats.ErrStreamNameAlreadyInUse) {
 		log.Printf("Warning: Could not create stream: %v (may already exist)", err)
