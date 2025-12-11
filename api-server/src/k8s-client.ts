@@ -63,10 +63,11 @@ export interface MinecraftServer {
 
 export class K8sClient {
   private kc: k8s.KubeConfig;
-  private customApi: k8s.CustomObjectsApi;
-  private coreApi: k8s.CoreV1Api;
-  private appsApi: k8s.AppsV1Api;
+  private customApi: k8s.CustomObjectsApi | null = null;
+  private coreApi: k8s.CoreV1Api | null = null;
+  private appsApi: k8s.AppsV1Api | null = null;
   private namespace: string;
+  private k8sAvailable: boolean = false;
 
   private readonly group = 'minecraft.platform.com';
   private readonly version = 'v1';
@@ -74,15 +75,38 @@ export class K8sClient {
 
   constructor(namespace: string = 'minecraft-servers') {
     this.kc = new k8s.KubeConfig();
-    this.kc.loadFromDefault();
-
-    this.customApi = this.kc.makeApiClient(k8s.CustomObjectsApi);
-    this.coreApi = this.kc.makeApiClient(k8s.CoreV1Api);
-    this.appsApi = this.kc.makeApiClient(k8s.AppsV1Api);
     this.namespace = namespace;
+
+    try {
+      this.kc.loadFromDefault();
+      this.customApi = this.kc.makeApiClient(k8s.CustomObjectsApi);
+      this.coreApi = this.kc.makeApiClient(k8s.CoreV1Api);
+      this.appsApi = this.kc.makeApiClient(k8s.AppsV1Api);
+      this.k8sAvailable = true;
+      console.log('[K8sClient] Kubernetes configuration loaded successfully');
+    } catch (error) {
+      console.warn('[K8sClient] Failed to load Kubernetes configuration:', error);
+      console.warn('[K8sClient] Running in degraded mode - K8s operations will fail gracefully');
+      this.k8sAvailable = false;
+    }
+  }
+
+  // Check if K8s is configured and available
+  isAvailable(): boolean {
+    return this.k8sAvailable;
+  }
+
+  // Throw an error if K8s is not available
+  private ensureAvailable(): void {
+    if (!this.k8sAvailable || !this.customApi || !this.coreApi || !this.appsApi) {
+      throw new Error('Kubernetes is not configured or unavailable');
+    }
   }
 
   async healthCheck(): Promise<boolean> {
+    if (!this.k8sAvailable) {
+      return false;
+    }
     try {
       const versionApi = this.kc.makeApiClient(k8s.VersionApi);
       await versionApi.getCode();
@@ -97,6 +121,7 @@ export class K8sClient {
     name: string,
     spec: Partial<MinecraftServerSpec>
   ): Promise<MinecraftServerStatus> {
+    this.ensureAvailable();
     const serverSpec: MinecraftServerSpec = {
       serverId: spec.serverId || name,
       tenantId: spec.tenantId || 'default-tenant',
@@ -134,7 +159,7 @@ export class K8sClient {
     };
 
     try {
-      const response = await this.customApi.createNamespacedCustomObject({
+      const response = await this.customApi!.createNamespacedCustomObject({
         group: this.group,
         version: this.version,
         namespace: this.namespace,
@@ -153,8 +178,9 @@ export class K8sClient {
   }
 
   async listMinecraftServers(): Promise<MinecraftServerStatus[]> {
+    this.ensureAvailable();
     try {
-      const response = await this.customApi.listNamespacedCustomObject({
+      const response = await this.customApi!.listNamespacedCustomObject({
         group: this.group,
         version: this.version,
         namespace: this.namespace,
@@ -173,8 +199,9 @@ export class K8sClient {
   }
 
   async getMinecraftServer(name: string): Promise<MinecraftServerStatus | null> {
+    this.ensureAvailable();
     try {
-      const response = await this.customApi.getNamespacedCustomObject({
+      const response = await this.customApi!.getNamespacedCustomObject({
         group: this.group,
         version: this.version,
         namespace: this.namespace,
@@ -192,8 +219,9 @@ export class K8sClient {
   }
 
   async deleteMinecraftServer(name: string): Promise<void> {
+    this.ensureAvailable();
     try {
-      await this.customApi.deleteNamespacedCustomObject({
+      await this.customApi!.deleteNamespacedCustomObject({
         group: this.group,
         version: this.version,
         namespace: this.namespace,
@@ -209,10 +237,11 @@ export class K8sClient {
   }
 
   async getServerLogs(name: string, lines: number = 100): Promise<string> {
+    this.ensureAvailable();
     try {
       // Pod name follows the pattern: {server-name}-0 for StatefulSet
       const podName = `${name}-0`;
-      const response = await this.coreApi.readNamespacedPodLog({
+      const response = await this.coreApi!.readNamespacedPodLog({
         name: podName,
         namespace: this.namespace,
         tailLines: lines,
@@ -231,9 +260,10 @@ export class K8sClient {
     name: string,
     updates: Partial<MinecraftServerSpec>
   ): Promise<MinecraftServerStatus> {
+    this.ensureAvailable();
     try {
       // Get existing resource
-      const existing = await this.customApi.getNamespacedCustomObject({
+      const existing = await this.customApi!.getNamespacedCustomObject({
         group: this.group,
         version: this.version,
         namespace: this.namespace,
@@ -250,7 +280,7 @@ export class K8sClient {
       if (updates.config) server.spec.config = { ...server.spec.config, ...updates.config };
 
       // Update resource
-      const response = await this.customApi.replaceNamespacedCustomObject({
+      const response = await this.customApi!.replaceNamespacedCustomObject({
         group: this.group,
         version: this.version,
         namespace: this.namespace,
@@ -293,9 +323,10 @@ export class K8sClient {
 
   // Stop a server by setting the stopped field on the CRD
   async stopServer(name: string): Promise<void> {
+    this.ensureAvailable();
     try {
       // Get existing resource
-      const existing = await this.customApi.getNamespacedCustomObject({
+      const existing = await this.customApi!.getNamespacedCustomObject({
         group: this.group,
         version: this.version,
         namespace: this.namespace,
@@ -309,7 +340,7 @@ export class K8sClient {
       server.spec.stopped = true;
 
       // Update the CRD
-      await this.customApi.replaceNamespacedCustomObject({
+      await this.customApi!.replaceNamespacedCustomObject({
         group: this.group,
         version: this.version,
         namespace: this.namespace,
@@ -327,9 +358,10 @@ export class K8sClient {
 
   // Start a server by setting the stopped field on the CRD
   async startServer(name: string): Promise<void> {
+    this.ensureAvailable();
     try {
       // Get existing resource
-      const existing = await this.customApi.getNamespacedCustomObject({
+      const existing = await this.customApi!.getNamespacedCustomObject({
         group: this.group,
         version: this.version,
         namespace: this.namespace,
@@ -343,7 +375,7 @@ export class K8sClient {
       server.spec.stopped = false;
 
       // Update the CRD
-      await this.customApi.replaceNamespacedCustomObject({
+      await this.customApi!.replaceNamespacedCustomObject({
         group: this.group,
         version: this.version,
         namespace: this.namespace,
@@ -363,6 +395,7 @@ export class K8sClient {
   async watchMinecraftServers(
     callback: (type: string, server: MinecraftServerStatus) => void
   ): Promise<() => void> {
+    this.ensureAvailable();
     const watch = new k8s.Watch(this.kc);
 
     const path = `/apis/${this.group}/${this.version}/namespaces/${this.namespace}/${this.plural}`;
@@ -417,9 +450,10 @@ export class K8sClient {
     nodeName?: string;
     conditions: Array<{ type: string; status: string; reason?: string; message?: string }>;
   } | null> {
+    this.ensureAvailable();
     try {
       const podName = `${name}-0`;
-      const pod = await this.coreApi.readNamespacedPod({
+      const pod = await this.coreApi!.readNamespacedPod({
         name: podName,
         namespace: this.namespace,
       });
@@ -447,9 +481,10 @@ export class K8sClient {
   // Get RCON endpoint for a server
   // Returns host and port for direct TCP connection to RCON
   async getRconEndpoint(name: string): Promise<{ host: string; port: number } | null> {
+    this.ensureAvailable();
     try {
       const serviceName = `${name}-service`;
-      const svc = await this.coreApi.readNamespacedService({
+      const svc = await this.coreApi!.readNamespacedService({
         name: serviceName,
         namespace: this.namespace,
       });
