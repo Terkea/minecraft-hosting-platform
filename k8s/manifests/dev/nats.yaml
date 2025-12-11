@@ -47,6 +47,7 @@ spec:
       containers:
         - name: nats
           image: nats:2.10-alpine
+          imagePullPolicy: Always
           args:
             - "--config"
             - "/etc/nats/nats.conf"

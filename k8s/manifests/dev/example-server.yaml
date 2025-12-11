@@ -8,7 +8,7 @@ metadata:
 spec:
   serverId: "test-001"
   tenantId: "dev-tenant"
-  image: "itzg/minecraft-server:latest"
+  image: "itzg/minecraft-server:java17"
   version: "1.20.1"
   storageClass: "standard"
   resources:

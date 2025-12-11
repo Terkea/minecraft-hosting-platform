@@ -38,6 +38,7 @@ spec:
       containers:
         - name: cockroachdb
           image: cockroachdb/cockroach:v23.1.11
+          imagePullPolicy: Always
           ports:
             - containerPort: 26257
               name: grpc
@@ -91,9 +92,14 @@ metadata:
 spec:
   template:
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
       containers:
         - name: init
           image: cockroachdb/cockroach:v23.1.11
+          imagePullPolicy: Always
           command:
             - /bin/sh
             - -c
@@ -108,5 +114,18 @@ spec:
                 GRANT ALL ON DATABASE minecraft_platform TO minecraft;
               "
               echo "Database initialized successfully"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
       restartPolicy: OnFailure
   backoffLimit: 10

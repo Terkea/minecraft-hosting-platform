@@ -44,6 +44,7 @@ spec:
       containers:
       - name: jaeger-collector
         image: jaegertracing/jaeger-collector:1.49.0
+        imagePullPolicy: Always
         args:
           - "--config-file=/conf/jaeger.yaml"
         ports:
@@ -118,6 +119,7 @@ spec:
       containers:
       - name: jaeger-query
         image: jaegertracing/jaeger-query:1.49.0
+        imagePullPolicy: Always
         args:
           - "--config-file=/conf/jaeger.yaml"
         ports:
@@ -161,6 +163,7 @@ spec:
             path: jaeger.yaml
 
 ---
+# checkov:skip=CKV_K8S_19: Jaeger agent requires hostNetwork to receive spans from pods on the same node
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -169,6 +172,8 @@ metadata:
   labels:
     app: jaeger
     component: agent
+  annotations:
+    checkov.io/skip1: CKV_K8S_19=Jaeger agent requires hostNetwork for tracing span collection from local pods
 spec:
   selector:
     matchLabels:
@@ -190,6 +195,7 @@ spec:
       containers:
       - name: jaeger-agent
         image: jaegertracing/jaeger-agent:1.49.0
+        imagePullPolicy: Always
         args:
           - "--reporter.grpc.host-port=jaeger-collector:14250"
           - "--reporter.type=grpc"
@@ -373,6 +379,7 @@ spec:
       containers:
       - name: elasticsearch
         image: elasticsearch:7.17.13
+        imagePullPolicy: Always
         ports:
         - containerPort: 9200
           name: rest

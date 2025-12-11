@@ -350,9 +350,13 @@ spec:
       template:
         spec:
           serviceAccountName: vpa-applier
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
           containers:
           - name: applier
-            image: kubectl:latest
+            image: bitnami/kubectl:1.28
+            imagePullPolicy: Always
             command:
             - /bin/sh
             - -c

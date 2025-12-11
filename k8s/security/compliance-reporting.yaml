@@ -92,7 +92,8 @@ spec:
         fsGroup: 1000
       containers:
       - name: controller
-        image: minecraft-platform/compliance-controller:latest
+        image: minecraft-platform/compliance-controller:v1.0.0
+        imagePullPolicy: Always
         ports:
         - containerPort: 8080
           name: http
@@ -225,7 +226,8 @@ spec:
             runAsUser: 1000
           containers:
           - name: reporter
-            image: minecraft-platform/compliance-reporter:latest
+            image: minecraft-platform/compliance-reporter:v1.0.0
+            imagePullPolicy: Always
             command:
             - /bin/sh
             - -c
@@ -332,9 +334,13 @@ spec:
       template:
         spec:
           serviceAccountName: data-retention-enforcer
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
           containers:
           - name: enforcer
-            image: minecraft-platform/data-retention-enforcer:latest
+            image: minecraft-platform/data-retention-enforcer:v1.0.0
+            imagePullPolicy: Always
             command:
             - /bin/sh
             - -c

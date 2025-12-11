@@ -82,6 +82,9 @@ data:
     -XX:+UnlockCommercialFeatures
 
 ---
+# checkov:skip=CKV_K8S_16: Elasticsearch requires privileged initContainers to set kernel parameters (vm.max_map_count)
+# checkov:skip=CKV_K8S_22: Elasticsearch initContainers require root to configure kernel settings
+# checkov:skip=CKV_K8S_23: Elasticsearch initContainers require root for sysctl commands
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -89,6 +92,10 @@ metadata:
   namespace: logging
   labels:
     app: elasticsearch
+  annotations:
+    checkov.io/skip1: CKV_K8S_16=Elasticsearch initContainers need privileged for kernel sysctl
+    checkov.io/skip2: CKV_K8S_22=Elasticsearch initContainers need root for sysctl
+    checkov.io/skip3: CKV_K8S_23=Elasticsearch initContainers need root for sysctl
 spec:
   serviceName: elasticsearch
   replicas: 3
@@ -103,11 +110,13 @@ spec:
       initContainers:
       - name: increase-vm-max-map
         image: busybox:1.35
+        imagePullPolicy: Always
         command: ["sysctl", "-w", "vm.max_map_count=262144"]
         securityContext:
           privileged: true
       - name: increase-fd-ulimit
         image: busybox:1.35
+        imagePullPolicy: Always
         command: ["sh", "-c", "ulimit -n 65536"]
         securityContext:
           privileged: true
@@ -117,6 +126,7 @@ spec:
       containers:
       - name: elasticsearch
         image: docker.elastic.co/elasticsearch/elasticsearch:7.17.13
+        imagePullPolicy: Always
         resources:
           requests:
             cpu: 1000m

@@ -129,8 +129,8 @@ spec:
       serviceAccountName: minecraft-operator
       containers:
         - name: operator
-          image: minecraft-platform-operator:latest
-          imagePullPolicy: IfNotPresent
+          image: minecraft-platform-operator:v1.0.0
+          imagePullPolicy: Always
           args:
             - --leader-elect=false
             - --metrics-bind-address=:8080

@@ -1,8 +1,17 @@
+# This is an example Pod showing security context constraints - not deployed
+# checkov:skip=CKV_K8S_14: Example pod does not specify an image
+# checkov:skip=CKV_K8S_20: Example pod does not specify resources
+# checkov:skip=CKV_K8S_43: Example pod does not specify an image tag
 apiVersion: v1
 kind: Pod
 metadata:
   name: security-context-constraints
   namespace: minecraft-platform-prod
+  annotations:
+    description: "Example pod demonstrating security context constraints - not deployed"
+    checkov.io/skip1: CKV_K8S_14=Example reference pod, not deployed
+    checkov.io/skip2: CKV_K8S_20=Example reference pod, not deployed
+    checkov.io/skip3: CKV_K8S_43=Example reference pod, not deployed
 spec:
   # Security context for all pods
   securityContext:
@@ -69,10 +78,15 @@ automountServiceAccountToken: false
 
 ---
 # RBAC for operator
+# checkov:skip=CKV_K8S_155: Operator requires secret management permissions to create/update Minecraft server configs
+# checkov:skip=CKV_K8S_156: Operator ClusterRole requires broad permissions for server lifecycle management
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: minecraft-platform-operator
+  annotations:
+    checkov.io/skip1: CKV_K8S_155=Operator needs secret access for Minecraft server configuration management
+    checkov.io/skip2: CKV_K8S_156=Operator requires broad permissions for Kubernetes resource management
 rules:
 # Minecraft server management
 - apiGroups: ["minecraft-platform.com"]

@@ -46,7 +46,8 @@ spec:
         fsGroup: 1000
       containers:
       - name: webhook
-        image: minecraft-platform/admission-webhook:latest
+        image: minecraft-platform/admission-webhook:v1.0.0
+        imagePullPolicy: Always
         ports:
         - containerPort: 8443
           name: webhook-api

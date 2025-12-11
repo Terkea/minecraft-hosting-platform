@@ -62,8 +62,8 @@ spec:
       serviceAccountName: api-server
       containers:
         - name: api-server
-          image: minecraft-platform-api:latest
-          imagePullPolicy: IfNotPresent
+          image: minecraft-platform-api:v1.0.0
+          imagePullPolicy: Always
           ports:
             - containerPort: 8080
           envFrom:
