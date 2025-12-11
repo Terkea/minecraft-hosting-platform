@@ -579,7 +579,7 @@ export class K8sClient {
         const result = await this.executeCommand(name, cmd);
         results.push(result);
       } catch (error) {
-        console.error(`Failed to execute command "${cmd}":`, error);
+        console.error('Failed to execute command "%s":', cmd, error);
         results.push('');
       }
     }

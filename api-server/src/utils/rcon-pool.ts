@@ -194,7 +194,7 @@ export class RconConnectionPool extends EventEmitter {
         console.log(`[RCON Pool] Created new connection to ${key} (pool size: ${pool.length})`);
         return connection;
       } catch (error) {
-        console.error(`[RCON Pool] Failed to create connection to ${key}:`, error);
+        console.error('[RCON Pool] Failed to create connection to %s:', key, error);
         throw error;
       }
     }

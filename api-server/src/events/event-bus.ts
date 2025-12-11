@@ -87,7 +87,7 @@ export class EventBus {
 
   // Publish an event
   publish<T extends BaseEvent>(event: T): void {
-    console.log(`[EventBus] Publishing ${event.type}:`, event.id);
+    console.log('[EventBus] Publishing %s: %s', event.type, event.id);
     this.emitter.emit(event.type, event);
     this.emitter.emit('*', event); // Wildcard for all events
   }

@@ -570,7 +570,7 @@ app.get('/api/v1/servers/:name/players', async (req: Request, res: Response) => 
           return parsePlayerDataFromFields(playerName, results);
         } catch (err) {
           // Return minimal data if we can't get full data
-          console.error(`Error fetching player data for ${playerName}:`, err);
+          console.error('Error fetching player data for %s:', playerName, err);
           return getMinimalPlayerData(playerName);
         }
       });
@@ -917,9 +917,16 @@ function _parsePlayerData(playerName: string, nbtString: string): any {
   return player;
 }
 
+// Escape special regex characters in a string
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 // Extract NBT array contents by finding matching brackets
 function extractNbtArray(nbtString: string, arrayName: string): string | null {
-  const startPattern = new RegExp(`${arrayName}:\\s*\\[`);
+  // Escape arrayName to prevent ReDoS if ever passed untrusted input
+  const escapedName = escapeRegex(arrayName);
+  const startPattern = new RegExp(`${escapedName}:\\s*\\[`);
   const match = startPattern.exec(nbtString);
   if (!match) return null;
 

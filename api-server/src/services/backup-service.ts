@@ -78,7 +78,7 @@ export class BackupService {
 
     // Start backup job asynchronously
     this.runBackupJob(backup).catch((error) => {
-      console.error(`[BackupService] Backup ${backupId} failed:`, error);
+      console.error('[BackupService] Backup %s failed:', backupId, error);
     });
 
     return backup;

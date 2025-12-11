@@ -155,9 +155,16 @@ export function parsePlayerData(name: string, rawData: string): PlayerData | nul
   }
 }
 
+// Escape special regex characters in a string
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function extractValue(data: string, key: string, defaultVal?: string): string | null {
   // Match patterns like: key: value, or key: valuef or key: values etc
-  const regex = new RegExp(`${key}: ([^,}\\]]+)`);
+  // Key is escaped to prevent ReDoS if ever passed untrusted input
+  const escapedKey = escapeRegex(key);
+  const regex = new RegExp(`${escapedKey}: ([^,}\\]]+)`);
   const match = data.match(regex);
   return match ? match[1].trim() : defaultVal || null;
 }
@@ -166,7 +173,9 @@ function parseInventory(data: string, key: string): MinecraftItem[] {
   const items: MinecraftItem[] = [];
 
   // Match the inventory array
-  const regex = new RegExp(`${key}: \\[([^\\]]*(?:\\{[^}]*\\}[^\\]]*)*)?\\]`);
+  // Key is escaped to prevent ReDoS if ever passed untrusted input
+  const escapedKey = escapeRegex(key);
+  const regex = new RegExp(`${escapedKey}: \\[([^\\]]*(?:\\{[^}]*\\}[^\\]]*)*)?\\]`);
   const match = data.match(regex);
   if (!match || !match[1]) return items;
 
