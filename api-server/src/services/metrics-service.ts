@@ -76,8 +76,8 @@ export class MetricsService {
   async collectAllMetrics(): Promise<Map<string, ServerMetrics>> {
     try {
       // Get all pods in the namespace
-      const podsResponse = await this.coreApi.listNamespacedPod(this.namespace);
-      const pods = podsResponse.body.items;
+      const podsResponse = await this.coreApi.listNamespacedPod({ namespace: this.namespace });
+      const pods = podsResponse.items;
 
       // Get pod metrics (requires metrics-server)
       const podMetricsMap = new Map<string, any>();

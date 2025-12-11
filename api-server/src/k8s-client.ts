@@ -134,15 +134,15 @@ export class K8sClient {
     };
 
     try {
-      const response = await this.customApi.createNamespacedCustomObject(
-        this.group,
-        this.version,
-        this.namespace,
-        this.plural,
-        body
-      );
+      const response = await this.customApi.createNamespacedCustomObject({
+        group: this.group,
+        version: this.version,
+        namespace: this.namespace,
+        plural: this.plural,
+        body,
+      });
 
-      const created = response.body as MinecraftServer;
+      const created = response as unknown as MinecraftServer;
       return this.parseServerStatus(created);
     } catch (error: any) {
       if (error.response?.statusCode === 409) {
@@ -154,14 +154,14 @@ export class K8sClient {
 
   async listMinecraftServers(): Promise<MinecraftServerStatus[]> {
     try {
-      const response = await this.customApi.listNamespacedCustomObject(
-        this.group,
-        this.version,
-        this.namespace,
-        this.plural
-      );
+      const response = await this.customApi.listNamespacedCustomObject({
+        group: this.group,
+        version: this.version,
+        namespace: this.namespace,
+        plural: this.plural,
+      });
 
-      const list = response.body as { items: MinecraftServer[] };
+      const list = response as unknown as { items: MinecraftServer[] };
       return list.items.map((item) => this.parseServerStatus(item));
     } catch (error: any) {
       if (error.response?.statusCode === 404) {
@@ -174,15 +174,15 @@ export class K8sClient {
 
   async getMinecraftServer(name: string): Promise<MinecraftServerStatus | null> {
     try {
-      const response = await this.customApi.getNamespacedCustomObject(
-        this.group,
-        this.version,
-        this.namespace,
-        this.plural,
-        name
-      );
+      const response = await this.customApi.getNamespacedCustomObject({
+        group: this.group,
+        version: this.version,
+        namespace: this.namespace,
+        plural: this.plural,
+        name,
+      });
 
-      return this.parseServerStatus(response.body as MinecraftServer);
+      return this.parseServerStatus(response as unknown as MinecraftServer);
     } catch (error: any) {
       if (error.response?.statusCode === 404) {
         return null;
@@ -193,13 +193,13 @@ export class K8sClient {
 
   async deleteMinecraftServer(name: string): Promise<void> {
     try {
-      await this.customApi.deleteNamespacedCustomObject(
-        this.group,
-        this.version,
-        this.namespace,
-        this.plural,
-        name
-      );
+      await this.customApi.deleteNamespacedCustomObject({
+        group: this.group,
+        version: this.version,
+        namespace: this.namespace,
+        plural: this.plural,
+        name,
+      });
     } catch (error: any) {
       if (error.response?.statusCode === 404) {
         throw new Error(`Server '${name}' not found`);
@@ -212,19 +212,12 @@ export class K8sClient {
     try {
       // Pod name follows the pattern: {server-name}-0 for StatefulSet
       const podName = `${name}-0`;
-      const response = await this.coreApi.readNamespacedPodLog(
-        podName,
-        this.namespace,
-        undefined, // container
-        undefined, // follow
-        undefined, // insecureSkipTLSVerifyBackend
-        undefined, // limitBytes
-        undefined, // pretty
-        undefined, // previous
-        undefined, // sinceSeconds
-        lines // tailLines
-      );
-      return response.body;
+      const response = await this.coreApi.readNamespacedPodLog({
+        name: podName,
+        namespace: this.namespace,
+        tailLines: lines,
+      });
+      return response;
     } catch (error: any) {
       if (error.response?.statusCode === 404) {
         return 'Pod not found - server may still be starting';
@@ -240,15 +233,15 @@ export class K8sClient {
   ): Promise<MinecraftServerStatus> {
     try {
       // Get existing resource
-      const existing = await this.customApi.getNamespacedCustomObject(
-        this.group,
-        this.version,
-        this.namespace,
-        this.plural,
-        name
-      );
+      const existing = await this.customApi.getNamespacedCustomObject({
+        group: this.group,
+        version: this.version,
+        namespace: this.namespace,
+        plural: this.plural,
+        name,
+      });
 
-      const server = existing.body as MinecraftServer;
+      const server = existing as unknown as MinecraftServer;
 
       // Merge updates
       if (updates.version) server.spec.version = updates.version;
@@ -257,16 +250,16 @@ export class K8sClient {
       if (updates.config) server.spec.config = { ...server.spec.config, ...updates.config };
 
       // Update resource
-      const response = await this.customApi.replaceNamespacedCustomObject(
-        this.group,
-        this.version,
-        this.namespace,
-        this.plural,
+      const response = await this.customApi.replaceNamespacedCustomObject({
+        group: this.group,
+        version: this.version,
+        namespace: this.namespace,
+        plural: this.plural,
         name,
-        server
-      );
+        body: server,
+      });
 
-      return this.parseServerStatus(response.body as MinecraftServer);
+      return this.parseServerStatus(response as unknown as MinecraftServer);
     } catch (error: any) {
       if (error.response?.statusCode === 404) {
         throw new Error(`Server '${name}' not found`);
@@ -302,28 +295,28 @@ export class K8sClient {
   async stopServer(name: string): Promise<void> {
     try {
       // Get existing resource
-      const existing = await this.customApi.getNamespacedCustomObject(
-        this.group,
-        this.version,
-        this.namespace,
-        this.plural,
-        name
-      );
+      const existing = await this.customApi.getNamespacedCustomObject({
+        group: this.group,
+        version: this.version,
+        namespace: this.namespace,
+        plural: this.plural,
+        name,
+      });
 
-      const server = existing.body as MinecraftServer;
+      const server = existing as unknown as MinecraftServer;
 
       // Set stopped to true
       server.spec.stopped = true;
 
       // Update the CRD
-      await this.customApi.replaceNamespacedCustomObject(
-        this.group,
-        this.version,
-        this.namespace,
-        this.plural,
+      await this.customApi.replaceNamespacedCustomObject({
+        group: this.group,
+        version: this.version,
+        namespace: this.namespace,
+        plural: this.plural,
         name,
-        server
-      );
+        body: server,
+      });
     } catch (error: any) {
       if (error.response?.statusCode === 404) {
         throw new Error(`Server '${name}' not found`);
@@ -336,28 +329,28 @@ export class K8sClient {
   async startServer(name: string): Promise<void> {
     try {
       // Get existing resource
-      const existing = await this.customApi.getNamespacedCustomObject(
-        this.group,
-        this.version,
-        this.namespace,
-        this.plural,
-        name
-      );
+      const existing = await this.customApi.getNamespacedCustomObject({
+        group: this.group,
+        version: this.version,
+        namespace: this.namespace,
+        plural: this.plural,
+        name,
+      });
 
-      const server = existing.body as MinecraftServer;
+      const server = existing as unknown as MinecraftServer;
 
       // Set stopped to false
       server.spec.stopped = false;
 
       // Update the CRD
-      await this.customApi.replaceNamespacedCustomObject(
-        this.group,
-        this.version,
-        this.namespace,
-        this.plural,
+      await this.customApi.replaceNamespacedCustomObject({
+        group: this.group,
+        version: this.version,
+        namespace: this.namespace,
+        plural: this.plural,
         name,
-        server
-      );
+        body: server,
+      });
     } catch (error: any) {
       if (error.response?.statusCode === 404) {
         throw new Error(`Server '${name}' not found`);
@@ -426,15 +419,17 @@ export class K8sClient {
   } | null> {
     try {
       const podName = `${name}-0`;
-      const response = await this.coreApi.readNamespacedPod(podName, this.namespace);
-      const pod = response.body;
+      const pod = await this.coreApi.readNamespacedPod({
+        name: podName,
+        namespace: this.namespace,
+      });
 
       return {
         phase: pod.status?.phase || 'Unknown',
         ready: pod.status?.containerStatuses?.[0]?.ready || false,
         restartCount: pod.status?.containerStatuses?.[0]?.restartCount || 0,
         nodeName: pod.spec?.nodeName,
-        conditions: (pod.status?.conditions || []).map((c) => ({
+        conditions: (pod.status?.conditions || []).map((c: k8s.V1PodCondition) => ({
           type: c.type,
           status: c.status,
           reason: c.reason,
@@ -454,8 +449,10 @@ export class K8sClient {
   async getRconEndpoint(name: string): Promise<{ host: string; port: number } | null> {
     try {
       const serviceName = `${name}-service`;
-      const service = await this.coreApi.readNamespacedService(serviceName, this.namespace);
-      const svc = service.body as any;
+      const svc = await this.coreApi.readNamespacedService({
+        name: serviceName,
+        namespace: this.namespace,
+      });
 
       if (this.isRunningInCluster()) {
         // Inside cluster: use service DNS name with internal port
@@ -464,7 +461,7 @@ export class K8sClient {
       } else {
         // Outside cluster (local dev): use minikube IP with NodePort
         // Find the RCON port NodePort from the service spec
-        const rconPort = svc.spec?.ports?.find((p: any) => p.port === 25575);
+        const rconPort = svc.spec?.ports?.find((p: k8s.V1ServicePort) => p.port === 25575);
         if (rconPort?.nodePort) {
           // Use minikube IP from environment
           const minikubeIp = process.env.MINIKUBE_IP;

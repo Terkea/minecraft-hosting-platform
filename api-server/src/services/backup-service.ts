@@ -142,7 +142,7 @@ export class BackupService {
         },
       };
 
-      await this.batchApi.createNamespacedJob(this.namespace, job);
+      await this.batchApi.createNamespacedJob({ namespace: this.namespace, body: job });
 
       // Poll for job completion (simplified - would use watch in production)
       let completed = false;
@@ -154,8 +154,11 @@ export class BackupService {
         attempts++;
 
         try {
-          const jobStatus = await this.batchApi.readNamespacedJob(jobName, this.namespace);
-          const status = jobStatus.body.status;
+          const jobStatus = await this.batchApi.readNamespacedJob({
+            name: jobName,
+            namespace: this.namespace,
+          });
+          const status = jobStatus.status;
 
           if (status?.succeeded && status.succeeded > 0) {
             completed = true;
