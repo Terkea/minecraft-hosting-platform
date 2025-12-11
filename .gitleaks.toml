@@ -62,6 +62,7 @@ paths = [
     '''.*\.spec\.ts''',
     '''testdata/''',
     '''fixtures/''',
+    '''k8s/security/secrets-management\.yaml''',
 ]
 regexes = [
     '''password.*example''',
