@@ -466,8 +466,12 @@ export class K8sClient {
         // Find the RCON port NodePort from the service spec
         const rconPort = svc.spec?.ports?.find((p: any) => p.port === 25575);
         if (rconPort?.nodePort) {
-          // Use minikube IP - can be overridden via MINIKUBE_IP env var
-          const minikubeIp = process.env.MINIKUBE_IP || '192.168.49.2';
+          // Use minikube IP from environment
+          const minikubeIp = process.env.MINIKUBE_IP;
+          if (!minikubeIp) {
+            console.error('MINIKUBE_IP environment variable is required for local development');
+            return null;
+          }
           return { host: minikubeIp, port: rconPort.nodePort };
         }
         return null;
@@ -498,10 +502,14 @@ export class K8sClient {
     try {
       const endpoint = await this.getRconEndpoint(name);
       if (endpoint) {
+        const rconPassword = process.env.RCON_PASSWORD;
+        if (!rconPassword) {
+          throw new Error('RCON_PASSWORD environment variable is required');
+        }
         const result = await rconPool.executeCommand(
           endpoint.host,
           endpoint.port,
-          'minecraft', // RCON password set in operator
+          rconPassword,
           command
         );
         return result;

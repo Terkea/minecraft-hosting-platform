@@ -172,27 +172,40 @@ spec:
       port: 443
 
 ---
-# Secret encryption configuration
+# ⚠️ PRODUCTION: Secret encryption configuration
+# Generate encryption key: head -c 32 /dev/urandom | base64
+# Store in Vault or use SealedSecrets
 apiVersion: v1
 kind: Secret
 metadata:
   name: encryption-config
   namespace: minecraft-platform-prod
+  annotations:
+    config.kubernetes.io/needs-replacement: "true"
 type: Opaque
 data:
-  # This would contain the encryption key for etcd encryption at rest
-  encryption-key: LS0tLS1CRUdJTi...  # Base64 encoded encryption key
+  # Replace with actual encryption key before production deployment
+  encryption-key: REPLACE_WITH_ENCRYPTION_KEY
 
 ---
-# Image pull secrets for private registries
+# ⚠️ PRODUCTION: Image pull secrets for private registries
+# Generate using:
+#   kubectl create secret docker-registry regcred \
+#     --docker-server=<registry> \
+#     --docker-username=<user> \
+#     --docker-password=<token> \
+#     --docker-email=<email> \
+#     --dry-run=client -o yaml | kubeseal --format yaml
 apiVersion: v1
 kind: Secret
 metadata:
   name: regcred
   namespace: minecraft-platform-prod
+  annotations:
+    config.kubernetes.io/needs-replacement: "true"
 type: kubernetes.io/dockerconfigjson
 data:
-  .dockerconfigjson: eyJhdXRocyI6eyJodHRwczovL2luZGV4LmRvY2tlci5pby92MSI6eyJ1c2VybmFtZSI6IilsdXNlciIsInBhc3N3b3JkIjoicGFzcyIsImVtYWlsIjoidGVzdEBleGFtcGxlLmNvbSIsImF1dGgiOiJkSGtlk25WelpYSTZjR0Z6YzBBPSJ9fX0=
+  .dockerconfigjson: REPLACE_WITH_DOCKER_CONFIG
 
 ---
 # Admission controller webhook for security validation

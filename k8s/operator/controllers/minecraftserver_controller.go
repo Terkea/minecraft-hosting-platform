@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -25,6 +26,16 @@ import (
 	"minecraft-platform-operator/pkg/events"
 	"minecraft-platform-operator/pkg/rcon"
 )
+
+// getRconPassword returns the RCON password from environment variable
+// Panics if RCON_PASSWORD is not set
+func getRconPassword() string {
+	pwd := os.Getenv("RCON_PASSWORD")
+	if pwd == "" {
+		panic("RCON_PASSWORD environment variable is required")
+	}
+	return pwd
+}
 
 // MinecraftServerReconciler reconciles a MinecraftServer object
 type MinecraftServerReconciler struct {
@@ -331,7 +342,7 @@ func (r *MinecraftServerReconciler) buildPodSpec(server *minecraftv1.MinecraftSe
 					},
 					{
 						Name:  "RCON_PASSWORD",
-						Value: "minecraft",
+						Value: getRconPassword(),
 					},
 					{
 						Name:  "RCON_PORT",

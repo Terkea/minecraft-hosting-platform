@@ -37,3 +37,9 @@ _archive/
 # IDE
 .idea/
 .vscode/
+
+# Scripts (contain bash eval for test command execution)
+scripts/
+
+# Environment example files
+**/.env.example

@@ -184,15 +184,24 @@ spec:
           storage: 500Gi
 
 ---
+# ⚠️ PRODUCTION: Replace with SealedSecret or ExternalSecret
+# Generate sealed secret:
+#   kubectl create secret generic elasticsearch-credentials \
+#     --namespace=logging \
+#     --from-literal=username=elastic \
+#     --from-literal=password=$(openssl rand -base64 24) \
+#     --dry-run=client -o yaml | kubeseal --format yaml
 apiVersion: v1
 kind: Secret
 metadata:
   name: elasticsearch-credentials
   namespace: logging
+  annotations:
+    config.kubernetes.io/needs-replacement: "true"
 type: Opaque
 data:
   username: ZWxhc3RpYw==  # elastic
-  password: Y2hhbmdlbWU=  # changeme (change in production)
+  password: REPLACE_IN_PRODUCTION  # ⚠️ Generate real password for production
 
 ---
 apiVersion: v1

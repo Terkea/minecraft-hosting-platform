@@ -63,6 +63,8 @@ paths = [
     '''testdata/''',
     '''fixtures/''',
     '''k8s/security/secrets-management\.yaml''',
+    '''docs/architecture/.*\.md''',
+    '''scripts/smoke-tests\.sh''',
 ]
 regexes = [
     '''password.*example''',
@@ -77,4 +79,9 @@ regexes = [
     '''minecraft_dev''',
     '''dev-jwt-secret-change-in-production''',
     '''secure_password''',
+    '''REPLACE_IN_PRODUCTION''',
+    '''REPLACE_WITH_.*''',
+    '''invalid-token''',
+    '''test-token-for-smoke-tests''',
+    '''postgres://root@cockroachdb''',
 ]

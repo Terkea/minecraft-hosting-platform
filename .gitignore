@@ -25,10 +25,10 @@ target/
 *.log
 logs/
 
-# Environment files
+# Environment files (contain secrets)
 .env
-.env.local
-.env.production
+.env.*
+!.env.example
 
 # Temporary files
 tmp/
@@ -45,4 +45,7 @@ node_modules/
 vendor/
 
 # IDE workspace files
-*.code-workspacefrontend/.vite/
+*.code-workspace
+
+# Vite cache
+frontend/.vite/

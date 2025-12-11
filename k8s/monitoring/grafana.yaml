@@ -198,15 +198,24 @@ data:
     }
 
 ---
+# ⚠️ PRODUCTION: Replace with SealedSecret or ExternalSecret
+# Generate sealed secret:
+#   kubectl create secret generic grafana-admin-credentials \
+#     --namespace=monitoring \
+#     --from-literal=admin-user=admin \
+#     --from-literal=admin-password=$(openssl rand -base64 24) \
+#     --dry-run=client -o yaml | kubeseal --format yaml
 apiVersion: v1
 kind: Secret
 metadata:
   name: grafana-admin-credentials
   namespace: monitoring
+  annotations:
+    config.kubernetes.io/needs-replacement: "true"
 type: Opaque
 data:
   admin-user: YWRtaW4=  # admin
-  admin-password: cGFzc3dvcmQ=  # password (change in production)
+  admin-password: REPLACE_IN_PRODUCTION  # ⚠️ Generate real password for production
 
 ---
 apiVersion: apps/v1

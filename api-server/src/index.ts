@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import { WebSocketServer, WebSocket } from 'ws';
@@ -12,9 +13,18 @@ const app = express();
 const server = createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });
 
-// Configuration
-const PORT = process.env.PORT || 8080;
-const K8S_NAMESPACE = process.env.K8S_NAMESPACE || 'minecraft-servers';
+// Configuration - all values from environment
+const PORT = process.env.PORT;
+const K8S_NAMESPACE = process.env.K8S_NAMESPACE;
+
+// Validate required environment variables
+const requiredEnvVars = ['PORT', 'K8S_NAMESPACE', 'RCON_PASSWORD'];
+const missingEnvVars = requiredEnvVars.filter((v) => !process.env[v]);
+if (missingEnvVars.length > 0) {
+  console.error(`Missing required environment variables: ${missingEnvVars.join(', ')}`);
+  console.error('Please set these in your .env file or environment');
+  process.exit(1);
+}
 
 // Initialize K8s client and services
 const k8sClient = new K8sClient(K8S_NAMESPACE);
@@ -24,7 +34,27 @@ const metricsService = new MetricsService(K8S_NAMESPACE);
 const eventBus = getEventBus();
 
 // Middleware
-app.use(cors());
+// Configure CORS with allowed origins from environment
+const ALLOWED_ORIGINS = process.env.CORS_ALLOWED_ORIGINS?.split(',');
+if (!ALLOWED_ORIGINS || ALLOWED_ORIGINS.length === 0) {
+  console.error('Missing required environment variable: CORS_ALLOWED_ORIGINS');
+  process.exit(1);
+}
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps or curl)
+      if (!origin) return callback(null, true);
+      if (ALLOWED_ORIGINS.includes(origin) || ALLOWED_ORIGINS.includes('*')) {
+        return callback(null, true);
+      }
+      return callback(new Error('Not allowed by CORS'));
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Tenant-ID'],
+  })
+);
 app.use(express.json());
 
 // Request logging
