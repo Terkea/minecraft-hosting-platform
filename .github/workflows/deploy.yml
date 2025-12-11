@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
 
 env:
-  GO_VERSION: "1.21"
+  GO_VERSION: "1.24"
   NODE_VERSION: "20"
 
 jobs:
@@ -20,7 +20,6 @@ jobs:
   security-scan:
     name: Security Scan
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -32,12 +31,13 @@ jobs:
           scan-ref: "."
           format: "table"
           severity: "CRITICAL,HIGH"
-          exit-code: "0"
+          exit-code: "1"
 
   # API Server Testing and Build
   api-server-test:
     name: API Server Tests
     runs-on: ubuntu-latest
+    needs: security-scan
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -69,6 +69,7 @@ jobs:
   frontend-test:
     name: Frontend Tests
     runs-on: ubuntu-latest
+    needs: security-scan
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -100,6 +101,7 @@ jobs:
   operator-test:
     name: Operator Tests
     runs-on: ubuntu-latest
+    needs: security-scan
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

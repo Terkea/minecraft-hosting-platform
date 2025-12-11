@@ -1,13 +1,18 @@
 name: DAST - Dynamic Application Security Testing
 
 on:
-  # Manual trigger only - DAST requires a running application
+  # Run on push to main branches for automated testing
+  push:
+    branches: [master, develop]
+  pull_request:
+    branches: [master, develop]
+  # Manual trigger for custom target URLs
   workflow_dispatch:
     inputs:
       target_url:
-        description: "Target URL to scan"
-        required: true
-        default: "http://localhost:8080"
+        description: "Target URL to scan (leave empty to use built-in server)"
+        required: false
+        default: ""
       scan_type:
         description: "Scan type (baseline, full, api)"
         required: true
@@ -18,91 +23,124 @@ on:
           - full
           - api
 
+env:
+  NODE_VERSION: "20"
+
 permissions:
   contents: read
-  issues: write
 
 jobs:
   # ============================================
-  # OWASP ZAP API Scan
+  # Build and Start Application for DAST
   # ============================================
-  zap-api-scan:
-    name: OWASP ZAP API Scan
+  dast-scan:
+    name: OWASP ZAP Security Scan
     runs-on: ubuntu-latest
-    if: github.event.inputs.scan_type == 'api'
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
-      - name: ZAP API Scan
-        uses: zaproxy/action-api-scan@v0.7.0
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          target: ${{ github.event.inputs.target_url }}/api/v1/
-          rules_file_name: ".github/zap-rules.tsv"
-          cmd_options: "-a -j -l WARN"
-          fail_action: false
-          allow_issue_writing: false
+          node-version: ${{ env.NODE_VERSION }}
 
-      - name: Upload ZAP Report
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: zap-api-report
-          path: report_html.html
-          retention-days: 30
+      - name: Install dependencies
+        run: npm install
 
-  # ============================================
-  # OWASP ZAP Baseline Scan
-  # ============================================
-  zap-baseline-scan:
-    name: OWASP ZAP Baseline Scan
-    runs-on: ubuntu-latest
-    if: github.event.inputs.scan_type == 'baseline'
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
+      - name: Build API Server
+        run: cd api-server && npm run build
+
+      - name: Create .env file for API Server
+        run: |
+          cat > api-server/.env << 'EOF'
+          PORT=8080
+          K8S_NAMESPACE=minecraft-servers
+          RCON_PASSWORD=dast-test-password
+          CORS_ALLOWED_ORIGINS=*
+          EOF
+
+      - name: Start API Server
+        run: |
+          cd api-server
+          node dist/index.js &
+          echo $! > /tmp/api-server.pid
+          # Wait for server to be ready
+          for i in {1..30}; do
+            if curl -s http://localhost:8080/health > /dev/null 2>&1; then
+              echo "API Server is ready"
+              break
+            fi
+            echo "Waiting for API Server... ($i/30)"
+            sleep 2
+          done
+        env:
+          # Mock K8s - server will start but K8s calls will fail gracefully
+          KUBECONFIG: /dev/null
+
+      - name: Verify API Server is running
+        run: |
+          curl -f http://localhost:8080/health || exit 1
+          echo "Health check passed"
+
+      - name: Determine scan type
+        id: scan-config
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            SCAN_TYPE="${{ github.event.inputs.scan_type }}"
+            TARGET="${{ github.event.inputs.target_url }}"
+            if [ -z "$TARGET" ]; then
+              TARGET="http://localhost:8080"
+            fi
+          else
+            # Default to baseline scan for automated runs
+            SCAN_TYPE="baseline"
+            TARGET="http://localhost:8080"
+          fi
+          echo "scan_type=$SCAN_TYPE" >> $GITHUB_OUTPUT
+          echo "target=$TARGET" >> $GITHUB_OUTPUT
+          echo "Scan type: $SCAN_TYPE, Target: $TARGET"
 
       - name: ZAP Baseline Scan
+        if: steps.scan-config.outputs.scan_type == 'baseline'
         uses: zaproxy/action-baseline@v0.11.0
         with:
-          target: ${{ github.event.inputs.target_url }}
+          target: ${{ steps.scan-config.outputs.target }}
           rules_file_name: ".github/zap-rules.tsv"
           cmd_options: "-a -j -l WARN"
-          fail_action: false
+          fail_action: true
           allow_issue_writing: false
 
-      - name: Upload ZAP Report
-        uses: actions/upload-artifact@v4
-        if: always()
+      - name: ZAP API Scan
+        if: steps.scan-config.outputs.scan_type == 'api'
+        uses: zaproxy/action-api-scan@v0.7.0
         with:
-          name: zap-baseline-report
-          path: report_html.html
-          retention-days: 30
-
-  # ============================================
-  # OWASP ZAP Full Scan
-  # ============================================
-  zap-full-scan:
-    name: OWASP ZAP Full Scan
-    runs-on: ubuntu-latest
-    if: github.event.inputs.scan_type == 'full'
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
+          target: ${{ steps.scan-config.outputs.target }}/api/v1/
+          rules_file_name: ".github/zap-rules.tsv"
+          cmd_options: "-a -j -l WARN"
+          fail_action: true
+          allow_issue_writing: false
 
       - name: ZAP Full Scan
+        if: steps.scan-config.outputs.scan_type == 'full'
         uses: zaproxy/action-full-scan@v0.9.0
         with:
-          target: ${{ github.event.inputs.target_url }}
+          target: ${{ steps.scan-config.outputs.target }}
           rules_file_name: ".github/zap-rules.tsv"
           cmd_options: "-a -j -l WARN"
-          fail_action: false
+          fail_action: true
           allow_issue_writing: false
+
+      - name: Stop API Server
+        if: always()
+        run: |
+          if [ -f /tmp/api-server.pid ]; then
+            kill $(cat /tmp/api-server.pid) 2>/dev/null || true
+          fi
 
       - name: Upload ZAP Report
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: zap-full-report
+          name: zap-scan-report
           path: report_html.html
           retention-days: 30

@@ -20,14 +20,13 @@ jobs:
   semgrep:
     name: Semgrep SAST
     runs-on: ubuntu-latest
-    continue-on-error: true
     container:
       image: semgrep/semgrep
     steps:
       - uses: actions/checkout@v4
 
       - name: Run Semgrep
-        run: semgrep scan --config auto || true
+        run: semgrep scan --config auto --error
         env:
           SEMGREP_RULES: >-
             p/default
@@ -41,7 +40,6 @@ jobs:
   npm-audit:
     name: NPM Audit
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -60,29 +58,28 @@ jobs:
         run: cd frontend && npm install
 
       - name: NPM Audit (API Server)
-        run: cd api-server && npm audit --audit-level=high || true
+        run: cd api-server && npm audit --audit-level=high
 
       - name: NPM Audit (Frontend)
-        run: cd frontend && npm audit --audit-level=high || true
+        run: cd frontend && npm audit --audit-level=high
 
   go-vulncheck:
     name: Go Vulnerability Check
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.21"
+          go-version: "1.24"
           cache-dependency-path: k8s/operator/go.sum
 
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
 
       - name: Run govulncheck
-        run: cd k8s/operator && govulncheck ./... || true
+        run: cd k8s/operator && govulncheck ./...
 
   # ============================================
   # Container & Filesystem Scanning
@@ -90,7 +87,6 @@ jobs:
   trivy:
     name: Trivy Security Scan
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -101,7 +97,7 @@ jobs:
           scan-ref: "."
           format: "table"
           severity: "CRITICAL,HIGH"
-          exit-code: "0"
+          exit-code: "1"
 
   # ============================================
   # Infrastructure as Code Scanning
@@ -109,7 +105,6 @@ jobs:
   checkov:
     name: Checkov IaC Scan
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -118,7 +113,8 @@ jobs:
         with:
           directory: k8s/
           framework: kubernetes,helm
-          soft_fail: true
+          soft_fail: false
+          skip_check: CKV_K8S_43,CKV_K8S_40,CKV_K8S_38,CKV_K8S_28,CKV_K8S_22,CKV_K8S_21,CKV_K8S_20,CKV_K8S_23,CKV_K8S_25,CKV_K8S_37,CKV_K8S_35,CKV_K8S_8,CKV_K8S_9,CKV_K8S_29,CKV_K8S_30,CKV_K8S_31
 
   # ============================================
   # License Compliance
@@ -126,7 +122,6 @@ jobs:
   license-check:
     name: License Compliance
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -145,7 +140,7 @@ jobs:
         run: npm install -g license-checker
 
       - name: Check licenses (API Server)
-        run: cd api-server && license-checker --failOn "GPL;AGPL;LGPL;CPAL" --summary || true
+        run: cd api-server && license-checker --failOn "GPL;AGPL;LGPL;CPAL" --summary
 
       - name: Check licenses (Frontend)
-        run: cd frontend && license-checker --failOn "GPL;AGPL;LGPL;CPAL" --summary || true
+        run: cd frontend && license-checker --failOn "GPL;AGPL;LGPL;CPAL" --summary
