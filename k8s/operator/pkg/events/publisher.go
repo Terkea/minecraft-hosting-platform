@@ -66,7 +66,7 @@ func NewEventPublisher(config *EventPublisherConfig) (*EventPublisher, error) {
 		nats.Name("minecraft-operator"),
 		nats.ReconnectWait(time.Second),
 		nats.MaxReconnects(-1),
-		nats.DisconnectErrHandler(func(nc *nats.Conn, err error) {
+		nats.DisconnectErrHandler(func(_ *nats.Conn, err error) {
 			log.Printf("Operator NATS disconnected: %v", err)
 		}),
 		nats.ReconnectHandler(func(nc *nats.Conn) {

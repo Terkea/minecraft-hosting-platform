@@ -44,8 +44,10 @@ func Connect(address string, password string, timeout time.Duration) (*Client, e
 }
 
 func (c *Client) authenticate(password string) error {
-	c.conn.SetDeadline(time.Now().Add(5 * time.Second))
-	defer c.conn.SetDeadline(time.Time{})
+	if err := c.conn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		return fmt.Errorf("failed to set deadline: %w", err)
+	}
+	defer func() { _ = c.conn.SetDeadline(time.Time{}) }()
 
 	// Send auth packet
 	if err := c.sendPacket(packetTypeAuth, password); err != nil {
@@ -67,8 +69,10 @@ func (c *Client) authenticate(password string) error {
 
 // Execute sends a command and returns the response
 func (c *Client) Execute(command string) (string, error) {
-	c.conn.SetDeadline(time.Now().Add(10 * time.Second))
-	defer c.conn.SetDeadline(time.Time{})
+	if err := c.conn.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
+		return "", fmt.Errorf("failed to set deadline: %w", err)
+	}
+	defer func() { _ = c.conn.SetDeadline(time.Time{}) }()
 
 	if err := c.sendPacket(packetTypeCommand, command); err != nil {
 		return "", err
@@ -96,12 +100,24 @@ func (c *Client) sendPacket(packetType int32, payload string) error {
 	length := int32(4 + 4 + len(payloadBytes) + 2)
 
 	buf := new(bytes.Buffer)
-	binary.Write(buf, binary.LittleEndian, length)
-	binary.Write(buf, binary.LittleEndian, c.requestID)
-	binary.Write(buf, binary.LittleEndian, packetType)
-	buf.Write(payloadBytes)
-	buf.WriteByte(0)
-	buf.WriteByte(0)
+	if err := binary.Write(buf, binary.LittleEndian, length); err != nil {
+		return fmt.Errorf("failed to write length: %w", err)
+	}
+	if err := binary.Write(buf, binary.LittleEndian, c.requestID); err != nil {
+		return fmt.Errorf("failed to write requestID: %w", err)
+	}
+	if err := binary.Write(buf, binary.LittleEndian, packetType); err != nil {
+		return fmt.Errorf("failed to write packetType: %w", err)
+	}
+	if _, err := buf.Write(payloadBytes); err != nil {
+		return fmt.Errorf("failed to write payload: %w", err)
+	}
+	if err := buf.WriteByte(0); err != nil {
+		return fmt.Errorf("failed to write null byte: %w", err)
+	}
+	if err := buf.WriteByte(0); err != nil {
+		return fmt.Errorf("failed to write null byte: %w", err)
+	}
 
 	c.requestID++
 
@@ -125,8 +141,12 @@ func (c *Client) readPacket() (int32, int32, string, error) {
 	buf := bytes.NewReader(data)
 
 	var requestID, packetType int32
-	binary.Read(buf, binary.LittleEndian, &requestID)
-	binary.Read(buf, binary.LittleEndian, &packetType)
+	if err := binary.Read(buf, binary.LittleEndian, &requestID); err != nil {
+		return 0, 0, "", fmt.Errorf("failed to read requestID: %w", err)
+	}
+	if err := binary.Read(buf, binary.LittleEndian, &packetType); err != nil {
+		return 0, 0, "", fmt.Errorf("failed to read packetType: %w", err)
+	}
 
 	// Payload is rest minus 2 null bytes
 	payloadLen := length - 4 - 4 - 2
@@ -134,7 +154,9 @@ func (c *Client) readPacket() (int32, int32, string, error) {
 		payloadLen = 0
 	}
 	payload := make([]byte, payloadLen)
-	buf.Read(payload)
+	if _, err := buf.Read(payload); err != nil {
+		return 0, 0, "", fmt.Errorf("failed to read payload: %w", err)
+	}
 
 	return requestID, packetType, string(payload), nil
 }
