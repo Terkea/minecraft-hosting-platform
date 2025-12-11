@@ -17,6 +17,7 @@
 10020	WARN	X-Frame-Options Header Not Set
 10038	WARN	Content Security Policy (CSP) Header Not Set
 10098	WARN	Cross-Domain Misconfiguration
+40040	IGNORE	CORS Misconfiguration (API uses CORS_ALLOWED_ORIGINS=* for DAST testing)
 
 # Medium risk - should address
 10012	WARN	Password Autocomplete in Browser
