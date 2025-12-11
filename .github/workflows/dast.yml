@@ -56,7 +56,7 @@ jobs:
           PORT=8080
           K8S_NAMESPACE=minecraft-servers
           RCON_PASSWORD=dast-test-password
-          CORS_ALLOWED_ORIGINS=*
+          CORS_ALLOWED_ORIGINS=http://localhost:8080,http://localhost:3000
           EOF
           # Remove leading whitespace from each line
           sed -i 's/^[[:space:]]*//' api-server/.env
