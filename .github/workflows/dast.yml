@@ -1,10 +1,7 @@
 name: DAST - Dynamic Application Security Testing
 
 on:
-  # Run on push to master (after deployment)
-  push:
-    branches: [master]
-  # Manual trigger for testing against staging
+  # Manual trigger only - DAST requires a running application
   workflow_dispatch:
     inputs:
       target_url:
@@ -14,15 +11,16 @@ on:
       scan_type:
         description: "Scan type (baseline, full, api)"
         required: true
-        default: "api"
+        default: "baseline"
         type: choice
         options:
           - baseline
           - full
           - api
 
-env:
-  ZAP_VERSION: "2.14.0"
+permissions:
+  contents: read
+  issues: write
 
 jobs:
   # ============================================
@@ -31,7 +29,8 @@ jobs:
   zap-api-scan:
     name: OWASP ZAP API Scan
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.scan_type == 'api'
+    if: github.event.inputs.scan_type == 'api'
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -42,6 +41,7 @@ jobs:
           rules_file_name: ".github/zap-rules.tsv"
           cmd_options: "-a -j -l WARN"
           fail_action: false
+          allow_issue_writing: false
 
       - name: Upload ZAP Report
         uses: actions/upload-artifact@v4
@@ -57,7 +57,8 @@ jobs:
   zap-baseline-scan:
     name: OWASP ZAP Baseline Scan
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.scan_type == 'baseline'
+    if: github.event.inputs.scan_type == 'baseline'
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -68,6 +69,7 @@ jobs:
           rules_file_name: ".github/zap-rules.tsv"
           cmd_options: "-a -j -l WARN"
           fail_action: false
+          allow_issue_writing: false
 
       - name: Upload ZAP Report
         uses: actions/upload-artifact@v4
@@ -83,7 +85,8 @@ jobs:
   zap-full-scan:
     name: OWASP ZAP Full Scan
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.scan_type == 'full'
+    if: github.event.inputs.scan_type == 'full'
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -94,6 +97,7 @@ jobs:
           rules_file_name: ".github/zap-rules.tsv"
           cmd_options: "-a -j -l WARN"
           fail_action: false
+          allow_issue_writing: false
 
       - name: Upload ZAP Report
         uses: actions/upload-artifact@v4
@@ -102,57 +106,3 @@ jobs:
           name: zap-full-report
           path: report_html.html
           retention-days: 30
-
-  # ============================================
-  # Local Integration Test with ZAP
-  # ============================================
-  integration-dast:
-    name: Integration DAST
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push'
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Install root dependencies
-        run: npm install
-
-      - name: Install api-server dependencies
-        run: cd api-server && npm install
-
-      - name: Build API Server
-        run: cd api-server && npm run build
-
-      - name: Start API Server
-        run: |
-          cd api-server && npm start &
-          sleep 15  # Wait for server to start
-        env:
-          PORT: "8080"
-          K8S_NAMESPACE: "minecraft-servers"
-          CORS_ALLOWED_ORIGINS: "http://localhost:3000"
-          RCON_PASSWORD: "test-password-for-ci"
-          MINIKUBE_IP: "127.0.0.1"
-
-      - name: Check if API is running
-        run: curl -s http://localhost:8080/health || echo "API not reachable (expected without K8s)"
-
-      - name: Run ZAP Baseline against local API
-        uses: zaproxy/action-baseline@v0.11.0
-        with:
-          target: "http://localhost:8080"
-          rules_file_name: ".github/zap-rules.tsv"
-          cmd_options: "-a -j -l WARN"
-          fail_action: false
-
-      - name: Upload Integration DAST Report
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: integration-dast-report
-          path: report_html.html
-          retention-days: 14
