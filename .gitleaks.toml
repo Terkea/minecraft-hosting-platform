@@ -57,33 +57,23 @@ paths = [
     '''bin''',
     '''_archive''',
     '''\.gitleaks\.toml''',
+    '''.*_test\.go''',
+    '''.*\.test\.ts''',
+    '''.*\.spec\.ts''',
+    '''testdata/''',
+    '''fixtures/''',
 ]
 regexes = [
-    # Example/placeholder passwords
     '''password.*example''',
     '''password.*placeholder''',
     '''password.*test''',
     '''password.*demo''',
-    # Default RCON password used in dev
     '''rcon.*minecraft''',
-    # Go mod checksums
     '''h1:[a-zA-Z0-9+/=]+''',
-    # Development/placeholder values
     '''your-smtp-password''',
     '''YOUR_SLACK_WEBHOOK_URL''',
     '''YOUR_PAGERDUTY_INTEGRATION_KEY''',
     '''minecraft_dev''',
     '''dev-jwt-secret-change-in-production''',
     '''secure_password''',
-]
-
-# File-specific allowlists
-[[allowlist.commits]]
-description = "Ignore test fixtures"
-paths = [
-    '''.*_test\.go''',
-    '''.*\.test\.ts''',
-    '''.*\.spec\.ts''',
-    '''testdata/''',
-    '''fixtures/''',
 ]
