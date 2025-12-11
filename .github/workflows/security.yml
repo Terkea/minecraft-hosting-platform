@@ -29,7 +29,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
           queries: +security-extended,security-and-quality
@@ -46,7 +46,7 @@ jobs:
         run: cd k8s/operator && go build ./...
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         with:
           category: "/language:${{ matrix.language }}"
 
@@ -71,7 +71,7 @@ jobs:
             p/golang
 
       - name: Upload Semgrep SARIF to GitHub Security
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: semgrep.sarif
@@ -143,7 +143,7 @@ jobs:
           severity: "CRITICAL,HIGH"
 
       - name: Upload Trivy SARIF to GitHub Security
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: trivy-results.sarif
@@ -209,10 +209,10 @@ jobs:
           skip_check: CKV_K8S_8,CKV_K8S_9,CKV_K8S_10,CKV_K8S_11,CKV_K8S_12,CKV_K8S_13,CKV_K8S_14,CKV_K8S_15,CKV_K8S_20,CKV_K8S_21,CKV_K8S_22,CKV_K8S_23,CKV_K8S_25,CKV_K8S_28,CKV_K8S_29,CKV_K8S_30,CKV_K8S_31,CKV_K8S_35,CKV_K8S_37,CKV_K8S_38,CKV_K8S_40,CKV_K8S_43,CKV2_K8S_4,CKV2_K8S_5,CKV2_K8S_6
 
       - name: Upload Checkov SARIF to GitHub Security
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
-          sarif_file: results.sarif
+          sarif_file: checkov-results.sarif
           category: checkov
 
   # ============================================
@@ -239,7 +239,7 @@ jobs:
           publish_results: true
 
       - name: Upload Scorecard SARIF to GitHub Security
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: scorecard-results.sarif
           category: ossf-scorecard
