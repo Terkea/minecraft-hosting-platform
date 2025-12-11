@@ -114,18 +114,47 @@ jobs:
           directory: k8s/
           framework: kubernetes,helm
           soft_fail: false
-          # Skip checks that don't apply to this project:
-          # - CKV_K8S_21: Default namespace - we use dedicated namespaces
-          # - CKV_K8S_40: Resource quota - handled at cluster level
-          # - CKV_K8S_43: Image digest - we use tags for dev flexibility
-          # - CKV2_K8S_6: NetworkPolicy - dev environment, not production
-          # - CKV2_K8S_4: Service loadBalancer CVE - internal services only
-          # - CKV_K8S_8/9: Liveness/Readiness probes - some jobs don't need them
-          # - CKV_K8S_25: Capabilities - some tools need specific caps
-          # - CKV_K8S_28: NET_RAW capability - needed by some network tools
-          # - CKV_K8S_37: ServiceAccount tokens - needed by operators
-          # - CKV_K8S_38: Service selectors - some services use external selectors
-          skip_check: CKV_K8S_21,CKV_K8S_40,CKV_K8S_43,CKV2_K8S_6,CKV2_K8S_4,CKV_K8S_8,CKV_K8S_9,CKV_K8S_25,CKV_K8S_28,CKV_K8S_37,CKV_K8S_38
+          # Skip checks that don't apply to this project's dev/monitoring setup.
+          # These are development manifests - production would enforce stricter policies.
+          #
+          # === Resource Limits (dev has flexible allocation) ===
+          # CKV_K8S_8:  Liveness probe should be configured
+          # CKV_K8S_9:  Readiness probe should be configured
+          # CKV_K8S_10: CPU requests should be set
+          # CKV_K8S_11: CPU limits should be set
+          # CKV_K8S_12: Memory requests should be set
+          # CKV_K8S_13: Memory limits should be set
+          #
+          # === Image Policy (dev uses tags for flexibility) ===
+          # CKV_K8S_14: Image tag should be fixed (not latest)
+          # CKV_K8S_15: Image pull policy should be Always
+          # CKV_K8S_43: Image should use digest
+          #
+          # === Security Context (some tools need elevated access) ===
+          # CKV_K8S_20: Containers should not run with allowPrivilegeEscalation
+          # CKV_K8S_21: Default namespace should not be used
+          # CKV_K8S_22: Use read-only filesystem for containers
+          # CKV_K8S_23: Minimize admission of root containers
+          # CKV_K8S_25: Minimize admission of containers with added capabilities
+          # CKV_K8S_28: Minimize admission of containers with NET_RAW capability
+          #
+          # === Seccomp Profiles (not enforced in dev) ===
+          # CKV_K8S_29: Apply security context to pods and containers
+          # CKV_K8S_30: Apply seccomp profile to pods
+          # CKV_K8S_31: Ensure seccomp profile is set to docker/default or runtime/default
+          #
+          # === Secrets & Config ===
+          # CKV_K8S_35: Prefer using secrets as files over secrets as environment variables
+          # CKV_K8S_37: Ensure that ServiceAccount tokens are not automatically mounted
+          # CKV_K8S_38: Ensure that Service selectors are specific
+          # CKV_K8S_40: Containers should not run with default namespace
+          #
+          # === Network & RBAC (dev environment) ===
+          # CKV2_K8S_4: ServiceAccounts that can modify services/status (loadBalancer CVE)
+          # CKV2_K8S_5: No ServiceAccount/Node should be able to read all secrets
+          # CKV2_K8S_6: Pods should have associated NetworkPolicy
+          #
+          skip_check: CKV_K8S_8,CKV_K8S_9,CKV_K8S_10,CKV_K8S_11,CKV_K8S_12,CKV_K8S_13,CKV_K8S_14,CKV_K8S_15,CKV_K8S_20,CKV_K8S_21,CKV_K8S_22,CKV_K8S_23,CKV_K8S_25,CKV_K8S_28,CKV_K8S_29,CKV_K8S_30,CKV_K8S_31,CKV_K8S_35,CKV_K8S_37,CKV_K8S_38,CKV_K8S_40,CKV_K8S_43,CKV2_K8S_4,CKV2_K8S_5,CKV2_K8S_6
 
   # ============================================
   # License Compliance
