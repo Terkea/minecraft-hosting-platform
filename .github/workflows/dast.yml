@@ -115,8 +115,8 @@ jobs:
               TARGET="http://localhost:8080"
             fi
           else
-            # Default to baseline scan for automated runs
-            SCAN_TYPE="baseline"
+            # Default to full scan for automated runs (thorough security testing)
+            SCAN_TYPE="full"
             TARGET="http://localhost:8080"
           fi
           echo "scan_type=$SCAN_TYPE" >> $GITHUB_OUTPUT
