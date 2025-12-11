@@ -63,6 +63,8 @@ paths = [
     '''testdata/''',
     '''fixtures/''',
     '''k8s/security/secrets-management\.yaml''',
+    '''k8s/monitoring/elasticsearch\.yaml''',
+    '''k8s/monitoring/grafana\.yaml''',
     '''docs/architecture/.*\.md''',
     '''scripts/smoke-tests\.sh''',
 ]
@@ -84,4 +86,6 @@ regexes = [
     '''invalid-token''',
     '''test-token-for-smoke-tests''',
     '''postgres://root@cockroachdb''',
+    '''process\.env\.RCON_PASSWORD''',
+    '''RCON_PASSWORD environment variable''',
 ]

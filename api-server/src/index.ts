@@ -13,18 +13,18 @@ const app = express();
 const server = createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });
 
-// Configuration - all values from environment
-const PORT = process.env.PORT;
-const K8S_NAMESPACE = process.env.K8S_NAMESPACE;
-
 // Validate required environment variables
-const requiredEnvVars = ['PORT', 'K8S_NAMESPACE', 'RCON_PASSWORD'];
+const requiredEnvVars = ['PORT', 'K8S_NAMESPACE', 'RCON_PASSWORD', 'CORS_ALLOWED_ORIGINS'];
 const missingEnvVars = requiredEnvVars.filter((v) => !process.env[v]);
 if (missingEnvVars.length > 0) {
   console.error(`Missing required environment variables: ${missingEnvVars.join(', ')}`);
   console.error('Please set these in your .env file or environment');
   process.exit(1);
 }
+
+// Configuration - all values from environment (validated above)
+const PORT = process.env.PORT as string;
+const K8S_NAMESPACE = process.env.K8S_NAMESPACE as string;
 
 // Initialize K8s client and services
 const k8sClient = new K8sClient(K8S_NAMESPACE);
@@ -34,12 +34,8 @@ const metricsService = new MetricsService(K8S_NAMESPACE);
 const eventBus = getEventBus();
 
 // Middleware
-// Configure CORS with allowed origins from environment
-const ALLOWED_ORIGINS = process.env.CORS_ALLOWED_ORIGINS?.split(',');
-if (!ALLOWED_ORIGINS || ALLOWED_ORIGINS.length === 0) {
-  console.error('Missing required environment variable: CORS_ALLOWED_ORIGINS');
-  process.exit(1);
-}
+// Configure CORS with allowed origins from environment (validated at startup)
+const ALLOWED_ORIGINS = (process.env.CORS_ALLOWED_ORIGINS as string).split(',');
 app.use(
   cors({
     origin: (origin, callback) => {
