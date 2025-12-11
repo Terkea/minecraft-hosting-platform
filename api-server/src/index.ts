@@ -925,7 +925,9 @@ function escapeRegex(str: string): string {
 // Extract NBT array contents by finding matching brackets
 function extractNbtArray(nbtString: string, arrayName: string): string | null {
   // Escape arrayName to prevent ReDoS if ever passed untrusted input
+  // Note: arrayName is always a hardcoded string literal from internal code, not user input
   const escapedName = escapeRegex(arrayName);
+  // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp
   const startPattern = new RegExp(`${escapedName}:\\s*\\[`);
   const match = startPattern.exec(nbtString);
   if (!match) return null;

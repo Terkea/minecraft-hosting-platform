@@ -163,7 +163,9 @@ function escapeRegex(str: string): string {
 function extractValue(data: string, key: string, defaultVal?: string): string | null {
   // Match patterns like: key: value, or key: valuef or key: values etc
   // Key is escaped to prevent ReDoS if ever passed untrusted input
+  // Note: key is always a hardcoded string literal from internal code, not user input
   const escapedKey = escapeRegex(key);
+  // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp
   const regex = new RegExp(`${escapedKey}: ([^,}\\]]+)`);
   const match = data.match(regex);
   return match ? match[1].trim() : defaultVal || null;
@@ -174,7 +176,9 @@ function parseInventory(data: string, key: string): MinecraftItem[] {
 
   // Match the inventory array
   // Key is escaped to prevent ReDoS if ever passed untrusted input
+  // Note: key is always a hardcoded string literal from internal code, not user input
   const escapedKey = escapeRegex(key);
+  // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp
   const regex = new RegExp(`${escapedKey}: \\[([^\\]]*(?:\\{[^}]*\\}[^\\]]*)*)?\\]`);
   const match = data.match(regex);
   if (!match || !match[1]) return items;
