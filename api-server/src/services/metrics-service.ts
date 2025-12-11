@@ -24,19 +24,28 @@ export interface ServerMetrics {
 
 export class MetricsService {
   private kc: k8s.KubeConfig;
-  private metricsApi: k8s.Metrics;
-  private coreApi: k8s.CoreV1Api;
+  private metricsApi!: k8s.Metrics;
+  private coreApi!: k8s.CoreV1Api;
   private namespace: string;
   private metricsCache: Map<string, ServerMetrics> = new Map();
   private pollInterval: ReturnType<typeof setInterval> | null = null;
   private onMetricsUpdate: ((metrics: Map<string, ServerMetrics>) => void) | null = null;
+  private k8sAvailable: boolean = false;
 
   constructor(namespace: string = 'minecraft-servers') {
     this.kc = new k8s.KubeConfig();
-    this.kc.loadFromDefault();
-    this.metricsApi = new k8s.Metrics(this.kc);
-    this.coreApi = this.kc.makeApiClient(k8s.CoreV1Api);
     this.namespace = namespace;
+
+    try {
+      this.kc.loadFromDefault();
+      this.metricsApi = new k8s.Metrics(this.kc);
+      this.coreApi = this.kc.makeApiClient(k8s.CoreV1Api);
+      this.k8sAvailable = true;
+    } catch (error) {
+      console.warn('[MetricsService] Failed to load Kubernetes configuration:', error);
+      console.warn('[MetricsService] Running in degraded mode - K8s metrics will not be available');
+      this.k8sAvailable = false;
+    }
   }
 
   // Set callback for when metrics are updated
@@ -74,6 +83,15 @@ export class MetricsService {
 
   // Collect metrics for all servers
   async collectAllMetrics(): Promise<Map<string, ServerMetrics>> {
+    // If K8s is not available, return cached/empty metrics
+    if (!this.k8sAvailable) {
+      console.debug('[MetricsService] K8s not available, returning cached metrics');
+      if (this.onMetricsUpdate) {
+        this.onMetricsUpdate(this.metricsCache);
+      }
+      return this.metricsCache;
+    }
+
     try {
       // Get all pods in the namespace
       const podsResponse = await this.coreApi.listNamespacedPod({ namespace: this.namespace });
