@@ -81,7 +81,11 @@
       "Bash(where gh:*)",
       "Bash(\"/c/Program Files/Git/mingw64/bin/gh.exe\" run list --limit 10)",
       "Bash(\"/c/Program Files/GitHub CLI/gh.exe\" run list --limit 10)",
-      "Bash(\"/c/Program Files/Go/bin/go.exe\" test -v ./...)"
+      "Bash(\"/c/Program Files/Go/bin/go.exe\" test -v ./...)",
+      "Bash(pip install checkov)",
+      "Bash(checkov:*)",
+      "Bash(pip install:*)",
+      "Bash(python -m checkov.main:*)"
     ],
     "deny": [],
     "ask": []
