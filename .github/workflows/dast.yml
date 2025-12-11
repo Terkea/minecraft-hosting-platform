@@ -136,7 +136,7 @@ jobs:
 
       - name: ZAP API Scan
         if: steps.scan-config.outputs.scan_type == 'api'
-        uses: zaproxy/action-api-scan@v0.11.0
+        uses: zaproxy/action-api-scan@v0.10.0
         with:
           target: ${{ steps.scan-config.outputs.target }}/api/v1/
           rules_file_name: ".github/zap-rules.tsv"
@@ -147,7 +147,7 @@ jobs:
 
       - name: ZAP Full Scan
         if: steps.scan-config.outputs.scan_type == 'full'
-        uses: zaproxy/action-full-scan@v0.13.0
+        uses: zaproxy/action-full-scan@v0.12.0
         with:
           target: ${{ steps.scan-config.outputs.target }}
           rules_file_name: ".github/zap-rules.tsv"
