@@ -2,6 +2,7 @@ package events
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -93,7 +94,7 @@ func NewEventPublisher(config *EventPublisherConfig) (*EventPublisher, error) {
 		MaxMsgs:    100000,
 		Storage:    nats.FileStorage,
 	})
-	if err != nil && err != nats.ErrStreamNameAlreadyInUse {
+	if err != nil && !errors.Is(err, nats.ErrStreamNameAlreadyInUse) {
 		log.Printf("Warning: Could not create stream: %v (may already exist)", err)
 	}
 

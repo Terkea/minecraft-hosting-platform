@@ -195,8 +195,14 @@ func ParsePlayerList(response string) (*PlayerInfo, error) {
 		return nil, fmt.Errorf("could not parse player list: %s", response)
 	}
 
-	online, _ := strconv.Atoi(matches[1])
-	max, _ := strconv.Atoi(matches[2])
+	online, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse online player count: %w", err)
+	}
+	max, err := strconv.Atoi(matches[2])
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse max player count: %w", err)
+	}
 
 	info := &PlayerInfo{
 		Online:  online,
