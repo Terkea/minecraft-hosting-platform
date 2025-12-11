@@ -57,7 +57,12 @@ jobs:
           cache-dependency-path: k8s/operator/go.sum
 
       - name: Install dependencies
-        run: npm ci || npm install
+        # Work around npm optional dependency bug: https://github.com/npm/cli/issues/4828
+        # Must delete package-lock.json to get platform-specific rollup bindings
+        run: |
+          rm -rf node_modules package-lock.json
+          rm -rf frontend/node_modules frontend/package-lock.json
+          npm install
 
       - name: Lint
         run: npm run lint

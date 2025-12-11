@@ -80,7 +80,12 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Install dependencies
-        run: npm install
+        # Work around npm optional dependency bug: https://github.com/npm/cli/issues/4828
+        # Must delete package-lock.json to get platform-specific rollup bindings
+        run: |
+          rm -rf node_modules package-lock.json
+          rm -rf frontend/node_modules frontend/package-lock.json
+          npm install
 
       - name: Run linting
         run: cd frontend && npm run lint
