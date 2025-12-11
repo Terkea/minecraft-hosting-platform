@@ -118,8 +118,16 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: Install dependencies
+      - name: Install root dependencies
         run: npm install
+
+      - name: Install frontend dependencies
+        # Reinstall frontend deps to get platform-specific rollup bindings
+        # This works around npm optional dependency bug: https://github.com/npm/cli/issues/4828
+        working-directory: frontend
+        run: |
+          rm -rf node_modules
+          npm install
 
       - name: Build Frontend
         run: cd frontend && npm run build
