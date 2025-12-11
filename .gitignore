@@ -45,4 +45,4 @@ node_modules/
 vendor/
 
 # IDE workspace files
-*.code-workspace
+*.code-workspacefrontend/.vite/

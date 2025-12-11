@@ -68,7 +68,20 @@
       "Bash(npx tsc:*)",
       "Bash(git checkout:*)",
       "Bash(time kubectl exec:*)",
-      "Bash(time curl -s http://localhost:8080/api/v1/servers/hehe/players)"
+      "Bash(time curl -s http://localhost:8080/api/v1/servers/hehe/players)",
+      "WebFetch(domain:github.com)",
+      "Bash(gh api:*)",
+      "WebFetch(domain:api.github.com)",
+      "Bash(gh run list:*)",
+      "Bash(gh run view:*)",
+      "Bash(\"/c/Program Files/Go/bin/go.exe\" build -o bin/test.exe .)",
+      "Bash(\"/c/Program Files/Go/bin/go.exe\" run github.com/golangci/golangci-lint/cmd/golangci-lint@latest run --timeout=5m)",
+      "Bash(\"/c/Program Files/Go/bin/go.exe\" fmt ./...)",
+      "Bash(\"/c/Program Files/Go/bin/go.exe\" build -o bin/operator.exe ./cmd/operator)",
+      "Bash(where gh:*)",
+      "Bash(\"/c/Program Files/Git/mingw64/bin/gh.exe\" run list --limit 10)",
+      "Bash(\"/c/Program Files/GitHub CLI/gh.exe\" run list --limit 10)",
+      "Bash(\"/c/Program Files/Go/bin/go.exe\" test -v ./...)"
     ],
     "deny": [],
     "ask": []
