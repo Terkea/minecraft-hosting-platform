@@ -58,12 +58,24 @@ jobs:
           RCON_PASSWORD=dast-test-password
           CORS_ALLOWED_ORIGINS=*
           EOF
+          # Remove leading whitespace from each line
+          sed -i 's/^[[:space:]]*//' api-server/.env
+          echo "Created .env file:"
+          cat api-server/.env
 
       - name: Start API Server
         run: |
           cd api-server
-          node dist/index.js &
+          # Start server and capture any startup errors
+          node dist/index.js > /tmp/api-server.log 2>&1 &
           echo $! > /tmp/api-server.pid
+          sleep 2
+          # Check if process is still running
+          if ! kill -0 $(cat /tmp/api-server.pid) 2>/dev/null; then
+            echo "API Server failed to start. Logs:"
+            cat /tmp/api-server.log
+            exit 1
+          fi
           # Wait for server to be ready
           for i in {1..30}; do
             if curl -s http://localhost:8080/health > /dev/null 2>&1; then
@@ -71,8 +83,19 @@ jobs:
               break
             fi
             echo "Waiting for API Server... ($i/30)"
+            # Show recent logs for debugging
+            if [ $i -eq 10 ] || [ $i -eq 20 ]; then
+              echo "--- Recent logs ---"
+              tail -20 /tmp/api-server.log
+            fi
             sleep 2
           done
+          # Final check
+          if ! curl -s http://localhost:8080/health > /dev/null 2>&1; then
+            echo "API Server failed to become ready. Full logs:"
+            cat /tmp/api-server.log
+            exit 1
+          fi
         env:
           # Mock K8s - server will start but K8s calls will fail gracefully
           KUBECONFIG: /dev/null
