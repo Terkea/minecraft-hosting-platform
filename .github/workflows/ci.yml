@@ -118,19 +118,17 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: Install root dependencies
-        run: npm install
-
-      - name: Install frontend dependencies
-        # Reinstall frontend deps to get platform-specific rollup bindings
-        # This works around npm optional dependency bug: https://github.com/npm/cli/issues/4828
-        working-directory: frontend
+      - name: Install dependencies
+        # Work around npm optional dependency bug: https://github.com/npm/cli/issues/4828
+        # Must delete package-lock.json and node_modules to get platform-specific rollup bindings
         run: |
-          rm -rf node_modules
+          rm -rf node_modules package-lock.json
+          rm -rf frontend/node_modules frontend/package-lock.json
           npm install
 
       - name: Build Frontend
-        run: cd frontend && npm run build
+        working-directory: frontend
+        run: npm run build
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
