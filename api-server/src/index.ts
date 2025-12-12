@@ -284,7 +284,7 @@ app.delete('/api/v1/servers/:name', async (req: Request, res: Response) => {
   }
 });
 
-// Get server logs
+// Get server logs (live/latest)
 app.get('/api/v1/servers/:name/logs', async (req: Request, res: Response) => {
   try {
     const { name } = req.params;
@@ -299,6 +299,131 @@ app.get('/api/v1/servers/:name/logs', async (req: Request, res: Response) => {
     console.error('Failed to get server logs:', error);
     res.status(500).json({
       error: 'logs_failed',
+      message: error.message,
+    });
+  }
+});
+
+// List log files from the server's logs directory
+app.get('/api/v1/servers/:name/logs/files', async (req: Request, res: Response) => {
+  try {
+    const { name } = req.params;
+
+    // Execute ls command in the pod to list log files
+    const result = await k8sClient.execInPod(name, [
+      'sh',
+      '-c',
+      'ls -la /data/logs/ 2>/dev/null || echo "No logs directory"',
+    ]);
+
+    // Parse the ls output into structured data
+    const lines = result
+      .trim()
+      .split('\n')
+      .filter((line) => line && !line.startsWith('total'));
+    const files: Array<{
+      name: string;
+      size: string;
+      sizeBytes: number;
+      modified: string;
+      type: 'file' | 'directory';
+    }> = [];
+
+    for (const line of lines) {
+      if (line === 'No logs directory') continue;
+
+      // Parse ls -la output: -rw-r--r-- 1 root root 12345 Dec 12 10:30 filename.log
+      const parts = line.split(/\s+/);
+      if (parts.length >= 9) {
+        const permissions = parts[0];
+        const sizeBytes = parseInt(parts[4], 10);
+        const month = parts[5];
+        const day = parts[6];
+        const time = parts[7];
+        const fileName = parts.slice(8).join(' ');
+
+        // Skip . and ..
+        if (fileName === '.' || fileName === '..') continue;
+
+        // Format size
+        let size = `${sizeBytes} B`;
+        if (sizeBytes >= 1024 * 1024) {
+          size = `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
+        } else if (sizeBytes >= 1024) {
+          size = `${(sizeBytes / 1024).toFixed(1)} KB`;
+        }
+
+        files.push({
+          name: fileName,
+          size,
+          sizeBytes,
+          modified: `${month} ${day} ${time}`,
+          type: permissions.startsWith('d') ? 'directory' : 'file',
+        });
+      }
+    }
+
+    // Sort by modified date (newest first) - log files with dates in name
+    files.sort((a, b) => {
+      // latest.log should be first
+      if (a.name === 'latest.log') return -1;
+      if (b.name === 'latest.log') return 1;
+      // Otherwise sort by name descending (newer dates come later alphabetically for dated logs)
+      return b.name.localeCompare(a.name);
+    });
+
+    res.json({
+      serverName: name,
+      files,
+      count: files.length,
+    });
+  } catch (error: any) {
+    console.error('Failed to list log files:', error);
+    res.status(500).json({
+      error: 'log_files_failed',
+      message: error.message,
+    });
+  }
+});
+
+// Get content of a specific log file
+app.get('/api/v1/servers/:name/logs/files/:filename', async (req: Request, res: Response) => {
+  try {
+    const { name, filename } = req.params;
+    const lines = parseInt(req.query.lines as string) || 500;
+
+    // Sanitize filename to prevent path traversal
+    const sanitizedFilename = filename.replace(/[^a-zA-Z0-9._-]/g, '');
+    if (sanitizedFilename !== filename) {
+      return res.status(400).json({
+        error: 'invalid_filename',
+        message: 'Invalid filename',
+      });
+    }
+
+    // Check if it's a gzipped file
+    const isGzipped = filename.endsWith('.gz');
+
+    let command: string;
+    if (isGzipped) {
+      // Use zcat for gzipped files
+      command = `zcat /data/logs/${sanitizedFilename} 2>/dev/null | tail -n ${lines}`;
+    } else {
+      command = `tail -n ${lines} /data/logs/${sanitizedFilename} 2>/dev/null`;
+    }
+
+    const result = await k8sClient.execInPod(name, ['sh', '-c', command]);
+
+    res.json({
+      serverName: name,
+      filename: sanitizedFilename,
+      content: result.split('\n'),
+      lines: result.split('\n').length,
+    });
+  } catch (error: any) {
+    console.error('Failed to get log file:', error);
+    res.status(500).json({
+      error: 'log_file_failed',
       message: error.message,
     });
   }

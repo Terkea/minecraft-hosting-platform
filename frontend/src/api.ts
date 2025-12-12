@@ -57,6 +57,44 @@ export async function getServerLogs(name: string, lines: number = 100): Promise<
   return data.logs || [];
 }
 
+// Log files types and functions
+export interface LogFile {
+  name: string;
+  size: string;
+  sizeBytes: number;
+  modified: string;
+  type: 'file' | 'directory';
+}
+
+export interface LogFilesResponse {
+  serverName: string;
+  files: LogFile[];
+  count: number;
+}
+
+export async function getLogFiles(name: string): Promise<LogFilesResponse> {
+  const response = await fetch(`${API_BASE}/servers/${name}/logs/files`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch log files');
+  }
+  return response.json();
+}
+
+export async function getLogFileContent(
+  name: string,
+  filename: string,
+  lines: number = 500
+): Promise<string[]> {
+  const response = await fetch(
+    `${API_BASE}/servers/${name}/logs/files/${encodeURIComponent(filename)}?lines=${lines}`
+  );
+  if (!response.ok) {
+    throw new Error('Failed to fetch log file content');
+  }
+  const data = await response.json();
+  return data.content || [];
+}
+
 export interface ServerMetricsResponse {
   serverName: string;
   metrics: {

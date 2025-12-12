@@ -1,5 +1,5 @@
 import * as k8s from '@kubernetes/client-node';
-import { Writable } from 'stream';
+import { Writable, PassThrough } from 'stream';
 import { rconPool } from './utils/rcon-pool.js';
 
 // MinecraftServer CRD types
@@ -131,6 +131,8 @@ export class K8sClient {
   private readonly group = 'minecraft.platform.com';
   private readonly version = 'v1';
   private readonly plural = 'minecraftservers';
+  // Container name used by itzg/minecraft-server deployments
+  private readonly containerName = 'minecraft-server';
 
   constructor(namespace: string = 'minecraft-servers') {
     this.kc = new k8s.KubeConfig();
@@ -341,6 +343,49 @@ export class K8sClient {
       }
       throw error;
     }
+  }
+
+  // Execute a command in a pod via Kubernetes API
+  async execInPod(name: string, command: string[]): Promise<string> {
+    this.ensureAvailable();
+    const podName = `${name}-0`;
+
+    return new Promise((resolve, reject) => {
+      const exec = new k8s.Exec(this.kc);
+      const outputStream = new PassThrough();
+      let output = '';
+
+      outputStream.on('data', (chunk: Buffer) => {
+        output += chunk.toString();
+      });
+
+      exec
+        .exec(
+          this.namespace,
+          podName,
+          this.containerName,
+          command,
+          outputStream, // stdout
+          outputStream, // stderr - combine with stdout
+          null, // stdin
+          false // tty
+        )
+        .then((conn) => {
+          conn.on('close', () => {
+            resolve(output);
+          });
+          conn.on('error', (err: Error) => {
+            reject(err);
+          });
+        })
+        .catch((err) => {
+          if (err.message?.includes('404')) {
+            reject(new Error(`Pod for server '${name}' not found`));
+          } else {
+            reject(err);
+          }
+        });
+    });
   }
 
   // Update server configuration
@@ -758,7 +803,7 @@ export class K8sClient {
         .exec(
           this.namespace,
           podName,
-          'minecraft-server',
+          this.containerName,
           ['rcon-cli', command],
           stdoutStream,
           stderrStream,

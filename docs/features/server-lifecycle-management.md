@@ -572,6 +572,340 @@ POST /api/v1/servers/{name}/console
 
 ---
 
+# 1.3 Console & Logs
+
+**Status**: COMPLETE
+**Related Requirements**: FR-013 to FR-016
+**Last Updated**: 2025-12-12
+
+## Overview
+
+Console & Logs provides real-time log streaming, command execution, log filtering/search capabilities, and historical log file access. Inspired by Shockbyte's smart console with categorized logs.
+
+## Requirements Coverage
+
+| Requirement | Description                  | Priority | Status   |
+| ----------- | ---------------------------- | -------- | -------- |
+| FR-013      | Live console log streaming   | P0       | Complete |
+| FR-014      | Command execution via RCON   | P0       | Complete |
+| FR-015      | Log filtering by level       | P1       | Complete |
+| FR-016      | Log download/export          | P1       | Complete |
+| FR-016a     | Log search within logs       | P2       | Complete |
+| FR-016b     | Generate shareable log links | P2       | Complete |
+
+## Features
+
+### 1. Live Console (P0)
+
+**API Endpoint**: `GET /api/v1/servers/{name}/logs?lines=100`
+
+**Response**:
+
+```json
+{
+  "serverName": "my-server",
+  "logs": [
+    "[12:34:56] [Server thread/INFO]: Starting minecraft server version 1.21.4",
+    "[12:34:57] [Server thread/INFO]: Loading properties",
+    "[12:35:01] [Server thread/WARN]: Failed to load something",
+    "[12:35:05] [Server thread/ERROR]: Exception in server tick loop"
+  ]
+}
+```
+
+**Implementation**:
+
+- Logs fetched every 3 seconds via polling
+- New logs appended to existing entries
+- Auto-scroll to bottom (disabled when user scrolls up)
+- Maximum 500 log entries kept in memory to prevent browser slowdown
+
+**Key Files**:
+
+- `api-server/src/index.ts:178-195` - Log streaming endpoint
+- `frontend/src/ServerDetail.tsx:282-306` - Log refresh logic
+
+### 2. Command Execution (P0)
+
+**API Endpoint**: `POST /api/v1/servers/{name}/console`
+
+**Request Body**:
+
+```json
+{
+  "command": "time set day"
+}
+```
+
+**Response**:
+
+```json
+{
+  "result": "Set the time to 1000"
+}
+```
+
+**How It Works**:
+
+1. Frontend sends command to API server
+2. API server connects to Minecraft via RCON pool
+3. Command executed and response returned
+4. Command + result displayed in console with color coding
+
+**Command Entry Types**:
+
+| Type      | Color  | Example              |
+| --------- | ------ | -------------------- |
+| `command` | Green  | `$ time set day`     |
+| `result`  | Cyan   | Response from server |
+| `error`   | Red    | Execution errors     |
+| `log`     | Varies | Server log entries   |
+
+### 3. Log Filtering (P1)
+
+**Filter Tabs**:
+
+| Filter   | Matches                                   | Color  |
+| -------- | ----------------------------------------- | ------ |
+| All      | All log entries                           | Blue   |
+| Errors   | Contains: error, exception, fatal, failed | Red    |
+| Warnings | Contains: warn, warning (+ errors)        | Yellow |
+| Info     | All except debug/trace                    | Blue   |
+
+**Log Level Classification** (`ServerDetail.tsx:76-88`):
+
+```typescript
+const classifyLogLevel = (content: string): 'error' | 'warn' | 'info' | 'debug' => {
+  const lower = content.toLowerCase();
+  if (
+    lower.includes('error') ||
+    lower.includes('exception') ||
+    lower.includes('fatal') ||
+    lower.includes('failed')
+  ) {
+    return 'error';
+  }
+  if (lower.includes('warn') || lower.includes('warning')) {
+    return 'warn';
+  }
+  if (lower.includes('debug') || lower.includes('trace')) {
+    return 'debug';
+  }
+  return 'info';
+};
+```
+
+**UI Features**:
+
+- Filter tabs show count badges (e.g., "Errors 5")
+- Color-coded log entries based on level
+- Commands/results always shown regardless of filter
+
+### 4. Log Download (P1)
+
+**Download Format**: Plain text file with timestamps
+
+**Filename Pattern**: `{serverName}-logs-{YYYY-MM-DD}.txt`
+
+**Output Format**:
+
+```
+[2025-12-12T15:30:00.000Z] [Server thread/INFO]: Server started
+[2025-12-12T15:30:01.000Z] > list
+[2025-12-12T15:30:01.000Z] < There are 0 of a max of 20 players online
+```
+
+**Implementation** (`ServerDetail.tsx:517-536`):
+
+```typescript
+const handleDownloadLogs = () => {
+  const logText = consoleEntries
+    .map((entry) => {
+      const time = entry.timestamp.toISOString();
+      if (entry.type === 'command') return `[${time}] > ${entry.content}`;
+      if (entry.type === 'result') return `[${time}] < ${entry.content}`;
+      return `[${time}] ${entry.content}`;
+    })
+    .join('\n');
+
+  const blob = new Blob([logText], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  // ... download trigger
+};
+```
+
+### 5. Log Search (P2)
+
+**Features**:
+
+- Toggle search bar with keyboard shortcut potential
+- Real-time filtering as you type
+- Match count displayed ("Found 12 matching logs")
+- Search highlights in yellow within log entries
+- Clear search button
+
+**Search Highlighting** (`ServerDetail.tsx:1030-1064`):
+
+- Matches wrapped in `<mark>` tags with yellow background
+- Case-insensitive matching
+- Works within filtered results
+
+### 6. Log Sharing (P2)
+
+**Current Implementation**: Client-side base64 encoding
+
+**How It Works**:
+
+1. Last 100 filtered log entries selected
+2. Content base64 encoded
+3. Shareable URL generated: `{origin}/shared-logs?data={encoded}`
+4. Copy button to clipboard
+5. Dismissible modal shows URL
+
+**Note**: For production, consider uploading to a paste service or storing in database with short URLs.
+
+### 7. Log Files Browser
+
+**Purpose**: Browse and view historical log files including archived `.log.gz` files.
+
+**API Endpoints**:
+
+| Method | Endpoint                                      | Description        |
+| ------ | --------------------------------------------- | ------------------ |
+| `GET`  | `/api/v1/servers/{name}/logs/files`           | List all log files |
+| `GET`  | `/api/v1/servers/{name}/logs/files/:filename` | Get file content   |
+
+**List Response**:
+
+```json
+{
+  "serverName": "my-server",
+  "files": [
+    {
+      "name": "latest.log",
+      "size": "1.3 MB",
+      "sizeBytes": 1364796,
+      "modified": "Dec 12 15:55",
+      "type": "file"
+    },
+    {
+      "name": "2025-12-12-1.log.gz",
+      "size": "5.4 KB",
+      "sizeBytes": 5548,
+      "modified": "Dec 12 11:30",
+      "type": "file"
+    }
+  ],
+  "count": 17
+}
+```
+
+**Implementation Details**:
+
+- Uses Kubernetes Exec API to run commands in pod
+- `ls -la /data/logs/` parses file metadata
+- Gzipped files read with `zcat`
+- Regular files read with `tail -n {lines}`
+
+**Backend Exec Method** (`k8s-client.ts:349-389`):
+
+```typescript
+async execInPod(name: string, command: string[]): Promise<string> {
+  const exec = new k8s.Exec(this.kc);
+  const outputStream = new PassThrough();
+
+  return new Promise((resolve, reject) => {
+    exec.exec(
+      this.namespace,
+      `${name}-0`,
+      this.containerName,  // 'minecraft-server'
+      command,
+      outputStream,  // stdout
+      outputStream,  // stderr
+      null,          // stdin
+      false          // tty
+    ).then((conn) => {
+      conn.on('close', () => resolve(output));
+    });
+  });
+}
+```
+
+**UI Features**:
+
+- View switcher: "Live Console" / "Log Files" tabs
+- Table with columns: File Name, Size, Modified, Actions
+- `latest.log` highlighted with "Current" badge
+- Click "View" to open file content viewer
+- Download button for viewed files
+- Back button to return to file list
+
+## Frontend Components
+
+**Key Files**:
+
+- `frontend/src/ServerDetail.tsx` - Main console UI and logic
+- `frontend/src/api.ts` - API functions for logs
+
+**State Management**:
+
+```typescript
+// Console entries
+const [consoleEntries, setConsoleEntries] = useState<ConsoleEntry[]>([]);
+
+// Filtering
+const [logFilter, setLogFilter] = useState<LogLevel>('all');
+const [logSearch, setLogSearch] = useState('');
+const [showSearch, setShowSearch] = useState(false);
+
+// Sharing
+const [shareUrl, setShareUrl] = useState<string | null>(null);
+
+// Log files
+const [logFiles, setLogFiles] = useState<LogFile[]>([]);
+const [selectedLogFile, setSelectedLogFile] = useState<string | null>(null);
+const [selectedFileContent, setSelectedFileContent] = useState<string[]>([]);
+const [consoleView, setConsoleView] = useState<'live' | 'files'>('live');
+```
+
+## URL Routes
+
+| Route                    | View                    |
+| ------------------------ | ----------------------- |
+| `/servers/:name/console` | Console tab (live view) |
+
+## Console Toolbar Buttons
+
+| Button   | Icon | Action                   |
+| -------- | ---- | ------------------------ |
+| Search   | 🔍   | Toggle search bar        |
+| Download | ⬇️   | Export logs as .txt file |
+| Share    | 🔗   | Generate shareable URL   |
+| Clear    | 🗑️   | Clear console entries    |
+| Refresh  | 🔄   | Force refresh logs       |
+
+## Troubleshooting
+
+### Logs Not Loading
+
+1. Check server is running: `kubectl get pods -n minecraft-servers`
+2. Verify API server can reach pod logs
+3. Check browser console for API errors
+
+### Log Files 404 Error
+
+1. Ensure metrics-server is enabled: `minikube addons enable metrics-server`
+2. Verify pod has `/data/logs/` directory
+3. Check container name matches: `kubectl get pod {name}-0 -o jsonpath='{.spec.containers[*].name}'`
+
+### Command Execution Fails
+
+1. Verify RCON is enabled on server
+2. Check RCON password matches environment variable
+3. Ensure server is in "Running" phase
+
+---
+
 # 1.4 Player Management
 
 **Status**: COMPLETE

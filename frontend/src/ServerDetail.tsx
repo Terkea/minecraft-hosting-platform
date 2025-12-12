@@ -22,6 +22,18 @@ import {
   ChevronRight,
   Settings,
   Shield,
+  Download,
+  Search,
+  Share2,
+  AlertCircle,
+  AlertTriangle,
+  Info,
+  X,
+  Link as LinkIcon,
+  FileText,
+  FolderOpen,
+  Eye,
+  Trash2,
 } from 'lucide-react';
 import {
   getServer,
@@ -33,10 +45,13 @@ import {
   startServer,
   getServerPlayers,
   getPlayerDetails,
+  getLogFiles,
+  getLogFileContent,
   ServerMetricsResponse,
   PodStatus,
   PlayersListResponse,
   PlayerData,
+  LogFile,
 } from './api';
 import { PlayerView } from './PlayerView';
 import { ServerConfigEditor } from './ServerConfigEditor';
@@ -48,12 +63,34 @@ interface ServerDetailProps {
 }
 
 type Tab = 'overview' | 'console' | 'players' | 'management' | 'config';
+type LogLevel = 'all' | 'error' | 'warn' | 'info';
 
 interface ConsoleEntry {
   type: 'log' | 'command' | 'result' | 'error';
   content: string;
   timestamp: Date;
+  level?: 'error' | 'warn' | 'info' | 'debug';
 }
+
+// Classify log level based on content
+const classifyLogLevel = (content: string): 'error' | 'warn' | 'info' | 'debug' => {
+  const lower = content.toLowerCase();
+  if (
+    lower.includes('error') ||
+    lower.includes('exception') ||
+    lower.includes('fatal') ||
+    lower.includes('failed')
+  ) {
+    return 'error';
+  }
+  if (lower.includes('warn') || lower.includes('warning')) {
+    return 'warn';
+  }
+  if (lower.includes('debug') || lower.includes('trace')) {
+    return 'debug';
+  }
+  return 'info';
+};
 
 const TABS: { id: Tab; label: string; icon: typeof Activity }[] = [
   { id: 'overview', label: 'Overview', icon: Activity },
@@ -94,6 +131,21 @@ export function ServerDetail({ connected }: ServerDetailProps) {
   const [playersLoading, setPlayersLoading] = useState(false);
   const playersFetchingRef = useRef(false);
   const selectedPlayerNameRef = useRef<string | null>(null);
+
+  // Console filtering, search, and sharing
+  const [logFilter, setLogFilter] = useState<LogLevel>('all');
+  const [logSearch, setLogSearch] = useState('');
+  const [showSearch, setShowSearch] = useState(false);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [copiedShareUrl, setCopiedShareUrl] = useState(false);
+
+  // Log files management
+  const [logFiles, setLogFiles] = useState<LogFile[]>([]);
+  const [loadingLogFiles, setLoadingLogFiles] = useState(false);
+  const [selectedLogFile, setSelectedLogFile] = useState<string | null>(null);
+  const [selectedFileContent, setSelectedFileContent] = useState<string[]>([]);
+  const [loadingFileContent, setLoadingFileContent] = useState(false);
+  const [consoleView, setConsoleView] = useState<'live' | 'files'>('live');
 
   // Keep the ref in sync with the selected player
   useEffect(() => {
@@ -199,6 +251,7 @@ export function ServerDetail({ connected }: ServerDetailProps) {
             type: 'log' as const,
             content: log,
             timestamp: new Date(),
+            level: classifyLogLevel(log),
           }))
         );
         setLastLogCount(logsData.length);
@@ -229,25 +282,81 @@ export function ServerDetail({ connected }: ServerDetailProps) {
     }
   };
 
+  const MAX_LOG_ENTRIES = 500; // Keep only the last 500 entries
+
   const refreshLogs = async () => {
     if (!serverName) return;
     try {
       const logsData = await getServerLogs(serverName, 200);
       if (logsData.length > lastLogCount) {
         const newLogs = logsData.slice(lastLogCount);
-        setConsoleEntries((prev) => [
-          ...prev,
-          ...newLogs.map((log: string) => ({
-            type: 'log' as const,
-            content: log,
-            timestamp: new Date(),
-          })),
-        ]);
+        setConsoleEntries((prev) => {
+          const updated = [
+            ...prev,
+            ...newLogs.map((log: string) => ({
+              type: 'log' as const,
+              content: log,
+              timestamp: new Date(),
+              level: classifyLogLevel(log),
+            })),
+          ];
+          // Keep only the last MAX_LOG_ENTRIES
+          return updated.slice(-MAX_LOG_ENTRIES);
+        });
         setLastLogCount(logsData.length);
       }
     } catch {
       // Silently fail
     }
+  };
+
+  const clearLogs = () => {
+    setConsoleEntries([]);
+    setLastLogCount(0);
+  };
+
+  // Fetch log files list
+  const fetchLogFiles = async () => {
+    if (!serverName) return;
+    setLoadingLogFiles(true);
+    try {
+      const data = await getLogFiles(serverName);
+      setLogFiles(data.files);
+    } catch (err) {
+      console.error('Failed to fetch log files:', err);
+    } finally {
+      setLoadingLogFiles(false);
+    }
+  };
+
+  // Fetch content of a specific log file
+  const fetchLogFileContent = async (filename: string) => {
+    if (!serverName) return;
+    setLoadingFileContent(true);
+    setSelectedLogFile(filename);
+    try {
+      const content = await getLogFileContent(serverName, filename, 1000);
+      setSelectedFileContent(content);
+    } catch (err) {
+      console.error('Failed to fetch log file content:', err);
+      setSelectedFileContent([]);
+    } finally {
+      setLoadingFileContent(false);
+    }
+  };
+
+  // Download a log file
+  const handleDownloadLogFile = (filename: string) => {
+    const content = selectedFileContent.join('\n');
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   const fetchPlayers = async (showLoading = false) => {
@@ -378,6 +487,80 @@ export function ServerDetail({ connected }: ServerDetailProps) {
       console.error('Failed to refresh player details:', err);
     } finally {
       setPlayersLoading(false);
+    }
+  };
+
+  // Filter console entries based on level and search
+  const filteredEntries = consoleEntries.filter((entry) => {
+    // Always show commands and results
+    if (entry.type === 'command' || entry.type === 'result') return true;
+
+    // Filter by level
+    if (logFilter !== 'all' && entry.type === 'log') {
+      if (logFilter === 'error' && entry.level !== 'error') return false;
+      if (logFilter === 'warn' && entry.level !== 'warn' && entry.level !== 'error') return false;
+      if (logFilter === 'info' && entry.level === 'debug') return false;
+    }
+
+    // Filter by search
+    if (logSearch && !entry.content.toLowerCase().includes(logSearch.toLowerCase())) {
+      return false;
+    }
+
+    return true;
+  });
+
+  // Count logs by level
+  const logCounts = {
+    all: consoleEntries.filter((e) => e.type === 'log').length,
+    error: consoleEntries.filter((e) => e.type === 'log' && e.level === 'error').length,
+    warn: consoleEntries.filter(
+      (e) => e.type === 'log' && (e.level === 'warn' || e.level === 'error')
+    ).length,
+    info: consoleEntries.filter((e) => e.type === 'log' && e.level !== 'debug').length,
+  };
+
+  // Download logs as file
+  const handleDownloadLogs = () => {
+    const logText = consoleEntries
+      .map((entry) => {
+        const time = entry.timestamp.toISOString();
+        if (entry.type === 'command') return `[${time}] > ${entry.content}`;
+        if (entry.type === 'result') return `[${time}] < ${entry.content}`;
+        return `[${time}] ${entry.content}`;
+      })
+      .join('\n');
+
+    const blob = new Blob([logText], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${serverName}-logs-${new Date().toISOString().split('T')[0]}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  // Generate shareable log link (base64 encoded)
+  const handleShareLogs = () => {
+    const logText = filteredEntries
+      .slice(-100) // Last 100 entries
+      .map((entry) => entry.content)
+      .join('\n');
+
+    const encoded = btoa(encodeURIComponent(logText));
+    // In a real app, this would be uploaded to a paste service
+    // For now, we'll create a data URL
+    const shareableUrl = `${window.location.origin}/shared-logs?data=${encoded.slice(0, 500)}`;
+    setShareUrl(shareableUrl);
+  };
+
+  const copyShareUrl = () => {
+    if (shareUrl) {
+      void navigator.clipboard.writeText(shareUrl);
+      setCopiedShareUrl(true);
+      setTimeout(() => setCopiedShareUrl(false), 2000);
     }
   };
 
@@ -649,107 +832,462 @@ export function ServerDetail({ connected }: ServerDetailProps) {
 
         {activeTab === 'console' && (
           <div className="bg-gray-800/50 backdrop-blur border border-gray-700 rounded-xl">
+            {/* Console Header with View Switcher */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700">
-              <div>
-                <h3 className="text-sm font-medium text-gray-400">Server Console</h3>
-                <p className="text-xs text-gray-500 mt-1">Live logs + RCON commands</p>
-              </div>
-              <button
-                onClick={refreshLogs}
-                className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors"
-              >
-                <RefreshCw className="w-4 h-4" />
-              </button>
-            </div>
-            <div
-              className="h-[500px] overflow-auto p-4 font-mono text-sm"
-              onScroll={(e) => {
-                const target = e.target as HTMLDivElement;
-                const isAtBottom =
-                  target.scrollHeight - target.scrollTop - target.clientHeight < 50;
-                autoScrollRef.current = isAtBottom;
-              }}
-            >
-              {consoleEntries.length === 0 ? (
-                <p className="text-gray-500">Waiting for server logs...</p>
-              ) : (
-                consoleEntries.map((entry, idx) => {
-                  if (entry.type === 'log') {
-                    return (
-                      <div
-                        key={idx}
-                        className="text-gray-300 whitespace-pre-wrap hover:bg-gray-700/50 px-2 py-0.5 rounded"
-                      >
-                        {entry.content}
-                      </div>
-                    );
-                  } else if (entry.type === 'command') {
-                    return (
-                      <div
-                        key={idx}
-                        className="text-green-400 mt-2 px-2 py-1 bg-green-500/10 rounded"
-                      >
-                        <span className="text-gray-500">
-                          [{entry.timestamp.toLocaleTimeString()}]
-                        </span>{' '}
-                        $ {entry.content}
-                      </div>
-                    );
-                  } else if (entry.type === 'result') {
-                    return (
-                      <div key={idx} className="text-cyan-400 pl-4 whitespace-pre-wrap px-2 py-0.5">
-                        {entry.content}
-                      </div>
-                    );
-                  } else if (entry.type === 'error') {
-                    return (
-                      <div key={idx} className="text-red-400 pl-4 whitespace-pre-wrap px-2 py-0.5">
-                        Error: {entry.content}
-                      </div>
-                    );
-                  }
-                  return null;
-                })
-              )}
-              <div ref={consoleEndRef} />
-            </div>
-            <form onSubmit={handleExecuteCommand} className="p-4 border-t border-gray-700">
-              {server.phase?.toLowerCase() !== 'running' && (
-                <div className="mb-3 px-3 py-2 bg-yellow-500/20 border border-yellow-500/30 rounded-lg text-yellow-400 text-sm">
-                  Console commands are only available when the server is running.
-                  {server.phase?.toLowerCase() === 'starting' &&
-                    ' Please wait for the server to finish starting.'}
-                  {server.phase?.toLowerCase() === 'stopped' &&
-                    ' Start the server to use console commands.'}
+              <div className="flex items-center gap-4">
+                {/* View Switcher */}
+                <div className="flex items-center gap-1 bg-gray-900/50 rounded-lg p-1">
+                  <button
+                    onClick={() => setConsoleView('live')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-colors ${
+                      consoleView === 'live'
+                        ? 'bg-green-500/20 text-green-400'
+                        : 'text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    <Terminal className="w-4 h-4" />
+                    Live Console
+                  </button>
+                  <button
+                    onClick={() => {
+                      setConsoleView('files');
+                      if (logFiles.length === 0) {
+                        void fetchLogFiles();
+                      }
+                    }}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-colors ${
+                      consoleView === 'files'
+                        ? 'bg-blue-500/20 text-blue-400'
+                        : 'text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    <FolderOpen className="w-4 h-4" />
+                    Log Files
+                  </button>
                 </div>
-              )}
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={command}
-                  onChange={(e) => setCommand(e.target.value)}
-                  placeholder={
-                    server.phase?.toLowerCase() === 'running'
-                      ? 'Enter command (e.g., list, say Hello, time set day)'
-                      : 'Server must be running to execute commands'
-                  }
-                  disabled={isExecutingCommand || server.phase?.toLowerCase() !== 'running'}
-                  className="flex-1 px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                />
-                <button
-                  type="submit"
-                  disabled={
-                    isExecutingCommand ||
-                    !command.trim() ||
-                    server.phase?.toLowerCase() !== 'running'
-                  }
-                  className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-600/50 disabled:cursor-not-allowed text-white rounded-lg transition-colors flex items-center gap-2"
-                >
-                  <Send className="w-4 h-4" />
-                  {isExecutingCommand ? 'Sending...' : 'Send'}
-                </button>
               </div>
-            </form>
+              <div className="flex items-center gap-2">
+                {consoleView === 'live' && (
+                  <>
+                    <button
+                      onClick={() => setShowSearch(!showSearch)}
+                      className={`p-1.5 rounded transition-colors ${showSearch ? 'text-blue-400 bg-blue-500/20' : 'text-gray-400 hover:text-white hover:bg-gray-700'}`}
+                      title="Search logs"
+                    >
+                      <Search className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={handleDownloadLogs}
+                      className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors"
+                      title="Download logs"
+                    >
+                      <Download className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={handleShareLogs}
+                      className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors"
+                      title="Share logs"
+                    >
+                      <Share2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={clearLogs}
+                      className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors"
+                      title="Clear logs"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={refreshLogs}
+                      className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors"
+                      title="Refresh logs"
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                    </button>
+                  </>
+                )}
+                {consoleView === 'files' && (
+                  <button
+                    onClick={fetchLogFiles}
+                    disabled={loadingLogFiles}
+                    className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors"
+                    title="Refresh file list"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${loadingLogFiles ? 'animate-spin' : ''}`} />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Live Console View */}
+            {consoleView === 'live' && (
+              <>
+                {/* Filter Tabs */}
+                <div className="flex items-center gap-1 px-4 py-2 border-b border-gray-700 bg-gray-900/30">
+                  {[
+                    { id: 'all' as LogLevel, label: 'All', icon: Terminal, count: logCounts.all },
+                    {
+                      id: 'error' as LogLevel,
+                      label: 'Errors',
+                      icon: AlertCircle,
+                      count: logCounts.error,
+                    },
+                    {
+                      id: 'warn' as LogLevel,
+                      label: 'Warnings',
+                      icon: AlertTriangle,
+                      count: logCounts.warn - logCounts.error,
+                    },
+                    {
+                      id: 'info' as LogLevel,
+                      label: 'Info',
+                      icon: Info,
+                      count: logCounts.info - logCounts.warn,
+                    },
+                  ].map(({ id, label, icon: Icon, count }) => (
+                    <button
+                      key={id}
+                      onClick={() => setLogFilter(id)}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                        logFilter === id
+                          ? id === 'error'
+                            ? 'bg-red-500/20 text-red-400'
+                            : id === 'warn'
+                              ? 'bg-yellow-500/20 text-yellow-400'
+                              : 'bg-blue-500/20 text-blue-400'
+                          : 'text-gray-400 hover:text-white hover:bg-gray-700'
+                      }`}
+                    >
+                      <Icon className="w-3.5 h-3.5" />
+                      {label}
+                      {count > 0 && (
+                        <span
+                          className={`px-1.5 py-0.5 rounded-full text-xs ${
+                            logFilter === id ? 'bg-white/20' : 'bg-gray-700'
+                          }`}
+                        >
+                          {count}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Search Bar */}
+                {showSearch && (
+                  <div className="px-4 py-2 border-b border-gray-700 bg-gray-900/30">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+                      <input
+                        type="text"
+                        value={logSearch}
+                        onChange={(e) => setLogSearch(e.target.value)}
+                        placeholder="Search logs..."
+                        className="w-full pl-10 pr-10 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-blue-500 text-sm"
+                        autoFocus
+                      />
+                      {logSearch && (
+                        <button
+                          onClick={() => setLogSearch('')}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                    {logSearch && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        Found {filteredEntries.filter((e) => e.type === 'log').length} matching logs
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Share URL Modal */}
+                {shareUrl && (
+                  <div className="px-4 py-3 border-b border-gray-700 bg-blue-500/10">
+                    <div className="flex items-center gap-3">
+                      <LinkIcon className="w-4 h-4 text-blue-400 flex-shrink-0" />
+                      <input
+                        type="text"
+                        value={shareUrl}
+                        readOnly
+                        className="flex-1 px-3 py-1.5 bg-gray-700 border border-gray-600 rounded text-sm text-white"
+                      />
+                      <button
+                        onClick={copyShareUrl}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm transition-colors"
+                      >
+                        {copiedShareUrl ? (
+                          <Check className="w-4 h-4" />
+                        ) : (
+                          <Copy className="w-4 h-4" />
+                        )}
+                        {copiedShareUrl ? 'Copied!' : 'Copy'}
+                      </button>
+                      <button
+                        onClick={() => setShareUrl(null)}
+                        className="p-1.5 text-gray-400 hover:text-white"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Log Content */}
+                <div
+                  className="h-[450px] overflow-auto p-4 font-mono text-sm"
+                  onScroll={(e) => {
+                    const target = e.target as HTMLDivElement;
+                    const isAtBottom =
+                      target.scrollHeight - target.scrollTop - target.clientHeight < 50;
+                    autoScrollRef.current = isAtBottom;
+                  }}
+                >
+                  {filteredEntries.length === 0 ? (
+                    <p className="text-gray-500">
+                      {consoleEntries.length === 0
+                        ? 'Waiting for server logs...'
+                        : 'No logs match your filter'}
+                    </p>
+                  ) : (
+                    filteredEntries.map((entry, idx) => {
+                      if (entry.type === 'log') {
+                        // Highlight search matches
+                        let content = entry.content;
+                        if (logSearch) {
+                          const regex = new RegExp(`(${logSearch})`, 'gi');
+                          content = content.replace(regex, '§HIGHLIGHT§$1§/HIGHLIGHT§');
+                        }
+
+                        const levelColors = {
+                          error: 'text-red-400 bg-red-500/10',
+                          warn: 'text-yellow-400 bg-yellow-500/5',
+                          info: 'text-gray-300',
+                          debug: 'text-gray-500',
+                        };
+
+                        return (
+                          <div
+                            key={idx}
+                            className={`whitespace-pre-wrap hover:bg-gray-700/50 px-2 py-0.5 rounded ${levelColors[entry.level || 'info']}`}
+                          >
+                            {logSearch
+                              ? content.split('§HIGHLIGHT§').map((part, i) => {
+                                  if (part.includes('§/HIGHLIGHT§')) {
+                                    const [highlighted, rest] = part.split('§/HIGHLIGHT§');
+                                    return (
+                                      <span key={i}>
+                                        <mark className="bg-yellow-500/50 text-white rounded px-0.5">
+                                          {highlighted}
+                                        </mark>
+                                        {rest}
+                                      </span>
+                                    );
+                                  }
+                                  return <span key={i}>{part}</span>;
+                                })
+                              : entry.content}
+                          </div>
+                        );
+                      } else if (entry.type === 'command') {
+                        return (
+                          <div
+                            key={idx}
+                            className="text-green-400 mt-2 px-2 py-1 bg-green-500/10 rounded"
+                          >
+                            <span className="text-gray-500">
+                              [{entry.timestamp.toLocaleTimeString()}]
+                            </span>{' '}
+                            $ {entry.content}
+                          </div>
+                        );
+                      } else if (entry.type === 'result') {
+                        return (
+                          <div
+                            key={idx}
+                            className="text-cyan-400 pl-4 whitespace-pre-wrap px-2 py-0.5"
+                          >
+                            {entry.content}
+                          </div>
+                        );
+                      } else if (entry.type === 'error') {
+                        return (
+                          <div
+                            key={idx}
+                            className="text-red-400 pl-4 whitespace-pre-wrap px-2 py-0.5"
+                          >
+                            Error: {entry.content}
+                          </div>
+                        );
+                      }
+                      return null;
+                    })
+                  )}
+                  <div ref={consoleEndRef} />
+                </div>
+              </>
+            )}
+
+            {/* Log Files View */}
+            {consoleView === 'files' && (
+              <div className="min-h-[500px]">
+                {selectedLogFile ? (
+                  // File Content Viewer
+                  <div>
+                    <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700 bg-gray-900/30">
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={() => {
+                            setSelectedLogFile(null);
+                            setSelectedFileContent([]);
+                          }}
+                          className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                        <FileText className="w-4 h-4 text-blue-400" />
+                        <span className="text-white font-medium">{selectedLogFile}</span>
+                      </div>
+                      <button
+                        onClick={() => handleDownloadLogFile(selectedLogFile)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors"
+                      >
+                        <Download className="w-4 h-4" />
+                        Download
+                      </button>
+                    </div>
+                    <div className="h-[450px] overflow-auto p-4 font-mono text-sm">
+                      {loadingFileContent ? (
+                        <div className="flex items-center justify-center h-full">
+                          <RefreshCw className="w-6 h-6 text-gray-400 animate-spin" />
+                        </div>
+                      ) : (
+                        selectedFileContent.map((line, idx) => (
+                          <div
+                            key={idx}
+                            className={`whitespace-pre-wrap hover:bg-gray-700/50 px-2 py-0.5 rounded ${
+                              line.toLowerCase().includes('error') ||
+                              line.toLowerCase().includes('exception')
+                                ? 'text-red-400 bg-red-500/10'
+                                : line.toLowerCase().includes('warn')
+                                  ? 'text-yellow-400'
+                                  : 'text-gray-300'
+                            }`}
+                          >
+                            {line}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  // File List Table
+                  <div className="p-4">
+                    {loadingLogFiles ? (
+                      <div className="flex items-center justify-center py-12">
+                        <RefreshCw className="w-6 h-6 text-gray-400 animate-spin" />
+                      </div>
+                    ) : logFiles.length === 0 ? (
+                      <div className="text-center py-12 text-gray-400">
+                        <FolderOpen className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                        <p>No log files found</p>
+                      </div>
+                    ) : (
+                      <table className="w-full">
+                        <thead>
+                          <tr className="text-left text-gray-400 text-sm border-b border-gray-700">
+                            <th className="pb-3 font-medium">File Name</th>
+                            <th className="pb-3 font-medium">Size</th>
+                            <th className="pb-3 font-medium">Modified</th>
+                            <th className="pb-3 font-medium w-24">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {logFiles.map((file) => (
+                            <tr
+                              key={file.name}
+                              className="border-b border-gray-700/50 hover:bg-gray-700/30 transition-colors"
+                            >
+                              <td className="py-3">
+                                <div className="flex items-center gap-2">
+                                  <FileText
+                                    className={`w-4 h-4 ${file.name === 'latest.log' ? 'text-green-400' : 'text-gray-400'}`}
+                                  />
+                                  <span
+                                    className={`${file.name === 'latest.log' ? 'text-green-400 font-medium' : 'text-white'}`}
+                                  >
+                                    {file.name}
+                                  </span>
+                                  {file.name === 'latest.log' && (
+                                    <span className="px-1.5 py-0.5 bg-green-500/20 text-green-400 text-xs rounded">
+                                      Current
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="py-3 text-gray-400">{file.size}</td>
+                              <td className="py-3 text-gray-400">{file.modified}</td>
+                              <td className="py-3">
+                                <button
+                                  onClick={() => fetchLogFileContent(file.name)}
+                                  className="flex items-center gap-1 px-2 py-1 text-sm text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 rounded transition-colors"
+                                >
+                                  <Eye className="w-4 h-4" />
+                                  View
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Command Input - Only show for live console */}
+            {consoleView === 'live' && (
+              <form onSubmit={handleExecuteCommand} className="p-4 border-t border-gray-700">
+                {server.phase?.toLowerCase() !== 'running' && (
+                  <div className="mb-3 px-3 py-2 bg-yellow-500/20 border border-yellow-500/30 rounded-lg text-yellow-400 text-sm">
+                    Console commands are only available when the server is running.
+                    {server.phase?.toLowerCase() === 'starting' &&
+                      ' Please wait for the server to finish starting.'}
+                    {server.phase?.toLowerCase() === 'stopped' &&
+                      ' Start the server to use console commands.'}
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={command}
+                    onChange={(e) => setCommand(e.target.value)}
+                    placeholder={
+                      server.phase?.toLowerCase() === 'running'
+                        ? 'Enter command (e.g., list, say Hello, time set day)'
+                        : 'Server must be running to execute commands'
+                    }
+                    disabled={isExecutingCommand || server.phase?.toLowerCase() !== 'running'}
+                    className="flex-1 px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                  />
+                  <button
+                    type="submit"
+                    disabled={
+                      isExecutingCommand ||
+                      !command.trim() ||
+                      server.phase?.toLowerCase() !== 'running'
+                    }
+                    className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-600/50 disabled:cursor-not-allowed text-white rounded-lg transition-colors flex items-center gap-2"
+                  >
+                    <Send className="w-4 h-4" />
+                    {isExecutingCommand ? 'Sending...' : 'Send'}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         )}
 
