@@ -351,13 +351,20 @@ kubectl apply -f k8s/manifests/dev/gate.yaml
 # 5. Start operator (local)
 cd k8s/operator && RCON_PASSWORD=<your-rcon-password> ./bin/operator.exe
 
-# 6. Start API server
+# 6. Deploy backup server (for backup downloads)
+kubectl apply -f k8s/manifests/dev/backup-server.yaml
+
+# 7. Port forward backup server (fixed port for local dev)
+kubectl port-forward -n minecraft-servers svc/backup-server 9090:80 &
+
+# 8. Start API server (set BACKUP_SERVER_URL in .env)
+# Ensure api-server/.env contains: BACKUP_SERVER_URL=http://127.0.0.1:9090
 cd api-server && npm run dev
 
-# 7. Start frontend
+# 9. Start frontend
 cd frontend && npm run dev
 
-# 8. Port forward Gate proxy
+# 10. Port forward Gate proxy
 kubectl port-forward -n minecraft-servers svc/gate 25565:25565
 ```
 
@@ -1366,5 +1373,511 @@ The frontend uses React Router for URL-based navigation, making all views bookma
 **Route Parameters**:
 
 - `serverName`: Name of the Minecraft server
-- `tab`: Active tab (overview, console, players, management, config)
+- `tab`: Active tab (overview, console, players, management, backups, config)
 - `name`: Player name (for player detail view)
+
+---
+
+# 2.1 Backup System
+
+**Status**: COMPLETE
+**Related Requirements**: FR-023 to FR-028
+**Last Updated**: 2025-12-12
+
+## Overview
+
+Backup System provides comprehensive backup management including manual one-click backups, automatic scheduled backups, backup restoration, and backup downloads. Inspired by Shockbyte and Apex Hosting backup interfaces.
+
+## Requirements Coverage
+
+| Requirement | Description             | Priority | Status   |
+| ----------- | ----------------------- | -------- | -------- |
+| FR-023      | Manual backup creation  | P0       | Complete |
+| FR-024      | Backup restore          | P0       | Complete |
+| FR-025      | Automatic backups       | P1       | Complete |
+| FR-026      | Backup retention policy | P1       | Complete |
+| FR-027      | Backup download         | P1       | Complete |
+| FR-028      | Incremental backups     | P2       | Planned  |
+
+## Technical Architecture
+
+### Backend Service
+
+**File**: `api-server/src/services/backup-service.ts`
+
+```typescript
+export class BackupService {
+  private backups: Map<string, BackupSnapshot> = new Map();
+  private schedules: Map<string, BackupSchedule> = new Map();
+  private schedulerInterval: ReturnType<typeof setInterval> | null = null;
+
+  // Create a backup using Kubernetes Jobs
+  async createBackup(options: BackupOptions): Promise<BackupSnapshot>;
+
+  // List backups for a server
+  listBackups(serverId?: string): BackupSnapshot[];
+
+  // Restore from a backup
+  async restoreBackup(backupId: string): Promise<void>;
+
+  // Schedule management
+  getSchedule(serverId: string): BackupSchedule | undefined;
+  setSchedule(serverId: string, config: ScheduleConfig): BackupSchedule;
+  startScheduler(): void;
+  stopScheduler(): void;
+}
+```
+
+### Backup Data Model
+
+```typescript
+interface BackupSnapshot {
+  id: string;
+  serverId: string;
+  tenantId: string;
+  name: string;
+  description?: string;
+  sizeBytes: number;
+  compressionFormat: 'gzip';
+  storagePath: string;
+  checksum: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  startedAt: Date;
+  completedAt?: Date;
+  minecraftVersion: string;
+  worldSize: number;
+  isAutomatic: boolean;
+  tags: string[];
+  errorMessage?: string;
+}
+
+interface BackupSchedule {
+  serverId: string;
+  enabled: boolean;
+  intervalHours: number; // 1, 6, 12, 24, 48, 168
+  retentionCount: number; // 3, 5, 7, 14, 30
+  lastBackupAt?: Date;
+  nextBackupAt?: Date;
+}
+```
+
+### Kubernetes Job-Based Backups
+
+Backups are executed as Kubernetes Jobs that:
+
+1. Mount the server's PVC as read-only
+2. Mount the shared backup storage PVC
+3. Create a gzip-compressed tarball of `/data`
+4. Store with naming pattern `{serverId}-{backupId}.tar.gz`
+
+```typescript
+const backupFilename = `${backup.serverId}-${backup.id}.tar.gz`;
+
+const job: k8s.V1Job = {
+  metadata: {
+    name: `backup-${serverId}-${backupId.slice(0, 8)}`,
+    labels: {
+      app: 'minecraft-backup',
+      'backup-id': backupId,
+      'server-id': serverId,
+    },
+  },
+  spec: {
+    ttlSecondsAfterFinished: 3600,
+    template: {
+      spec: {
+        restartPolicy: 'Never',
+        containers: [
+          {
+            name: 'backup',
+            image: 'alpine:latest',
+            command: [
+              '/bin/sh',
+              '-c',
+              [
+                `echo "Starting backup for ${serverId}..."`,
+                `tar -czf /backups/${backupFilename} -C /data .`,
+                `ls -lh /backups/${backupFilename}`,
+                `echo "Backup complete: ${backupFilename}"`,
+              ].join(' && '),
+            ],
+            volumeMounts: [
+              { name: 'minecraft-data', mountPath: '/data', readOnly: true },
+              { name: 'backup-storage', mountPath: '/backups' },
+            ],
+          },
+        ],
+        volumes: [
+          {
+            name: 'minecraft-data',
+            persistentVolumeClaim: {
+              // StatefulSet PVC naming: <volumeClaimTemplate>-<pod-name>
+              claimName: `minecraft-data-${serverId}-0`,
+            },
+          },
+          {
+            name: 'backup-storage',
+            persistentVolumeClaim: {
+              claimName: 'minecraft-backups',
+            },
+          },
+        ],
+      },
+    },
+  },
+};
+```
+
+### Backup Storage Infrastructure
+
+Backups are stored in a dedicated PVC and served via an nginx file server.
+
+**Manifest**: `k8s/manifests/dev/backup-server.yaml`
+
+```yaml
+# PVC for storing all backup files
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minecraft-backups
+  namespace: minecraft-servers
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+---
+# Nginx file server for backup downloads
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backup-server
+  namespace: minecraft-servers
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backup-server
+  template:
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:alpine
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: backups
+              mountPath: /usr/share/nginx/html
+              readOnly: true
+      volumes:
+        - name: backups
+          persistentVolumeClaim:
+            claimName: minecraft-backups
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backup-server
+  namespace: minecraft-servers
+spec:
+  selector:
+    app: backup-server
+  ports:
+    - port: 80
+      targetPort: 80
+```
+
+### Download Flow
+
+The API server proxies backup downloads from the backup-server:
+
+```typescript
+// GET /api/v1/backups/:backupId/download
+const backupFilename = `${backup.serverId}-${backup.id}.tar.gz`;
+
+// BACKUP_SERVER_URL configurable via environment:
+// - In-cluster: http://backup-server.minecraft-servers.svc.cluster.local
+// - Local dev: http://127.0.0.1:9090 (via port-forward)
+const backupServerUrl = process.env.BACKUP_SERVER_URL || 'http://192.168.49.2:30090';
+
+// Fetch and buffer the backup file
+const response = await fetch(`${backupServerUrl}/${backupFilename}`);
+
+// Send to client with download headers
+res.setHeader('Content-Type', 'application/gzip');
+res.setHeader('Content-Disposition', `attachment; filename="${downloadFilename}"`);
+const buffer = await response.arrayBuffer();
+res.send(Buffer.from(buffer));
+```
+
+**Frontend Download**: The frontend opens downloads directly to the API server (port 8080) to bypass Vite proxy buffering issues with large files:
+
+```typescript
+// Opens download in new window, bypassing Vite proxy
+window.open(`http://localhost:8080/api/v1/backups/${backup.id}/download`, '_blank');
+```
+
+## API Endpoints
+
+### Backup Operations
+
+| Method   | Endpoint                              | Description          |
+| -------- | ------------------------------------- | -------------------- |
+| `POST`   | `/api/v1/servers/{name}/backups`      | Create a backup      |
+| `GET`    | `/api/v1/servers/{name}/backups`      | List server backups  |
+| `GET`    | `/api/v1/backups/{backupId}`          | Get backup details   |
+| `DELETE` | `/api/v1/backups/{backupId}`          | Delete a backup      |
+| `POST`   | `/api/v1/backups/{backupId}/restore`  | Restore from backup  |
+| `GET`    | `/api/v1/backups/{backupId}/download` | Download backup file |
+
+### Schedule Operations
+
+| Method | Endpoint                                  | Description         |
+| ------ | ----------------------------------------- | ------------------- |
+| `GET`  | `/api/v1/servers/{name}/backups/schedule` | Get backup schedule |
+| `PUT`  | `/api/v1/servers/{name}/backups/schedule` | Set backup schedule |
+
+### Request/Response Examples
+
+**Create Backup**:
+
+```json
+// POST /api/v1/servers/my-server/backups
+{
+  "name": "pre-update-backup",
+  "description": "Backup before installing mods",
+  "tags": ["pre-update"]
+}
+
+// Response
+{
+  "message": "Backup creation initiated",
+  "backup": {
+    "id": "abc123",
+    "serverId": "my-server",
+    "name": "pre-update-backup",
+    "status": "pending",
+    "startedAt": "2025-12-12T10:00:00Z"
+  }
+}
+```
+
+**Set Schedule**:
+
+```json
+// PUT /api/v1/servers/my-server/backups/schedule
+{
+  "enabled": true,
+  "intervalHours": 24,
+  "retentionCount": 7
+}
+
+// Response
+{
+  "message": "Backup schedule enabled",
+  "schedule": {
+    "serverId": "my-server",
+    "enabled": true,
+    "intervalHours": 24,
+    "retentionCount": 7,
+    "nextBackupAt": "2025-12-13T10:00:00Z"
+  }
+}
+```
+
+## Frontend Component
+
+**File**: `frontend/src/BackupManager.tsx` (742 LOC)
+
+### Features
+
+1. **Backup List Table**
+   - Name, status, size, created date, type columns
+   - Status badges (pending, in_progress, completed, failed)
+   - Actions: restore, download, delete
+
+2. **Create Backup Modal**
+   - Optional name and description
+   - Info note about server pause
+
+3. **Schedule Settings Modal**
+   - Enable/disable toggle
+   - Interval selection (hourly to weekly)
+   - Retention count (3-30 backups)
+   - Next backup time display
+
+4. **Confirmation Dialogs**
+   - Restore confirmation with warning
+   - Delete confirmation
+
+### State Management
+
+```typescript
+// Backups state
+const [backups, setBackups] = useState<Backup[]>([]);
+const [loading, setLoading] = useState(true);
+
+// Schedule state
+const [schedule, setSchedule] = useState<BackupSchedule | null>(null);
+const [scheduleEnabled, setScheduleEnabled] = useState(false);
+const [scheduleInterval, setScheduleInterval] = useState(24);
+const [scheduleRetention, setScheduleRetention] = useState(7);
+
+// Modals
+const [showCreateModal, setShowCreateModal] = useState(false);
+const [showScheduleModal, setShowScheduleModal] = useState(false);
+const [confirmAction, setConfirmAction] = useState<{
+  type: 'restore' | 'delete';
+  backup: Backup;
+} | null>(null);
+```
+
+### Auto-Refresh
+
+Backups are polled every 3-5 seconds when there are pending/in_progress backups:
+
+```typescript
+useEffect(() => {
+  if (backups.some((b) => b.status === 'pending' || b.status === 'in_progress')) {
+    const interval = setInterval(fetchBackups, 3000);
+    return () => clearInterval(interval);
+  }
+}, [backups]);
+```
+
+## Auto-Backup Scheduler
+
+The BackupService includes a scheduler that:
+
+1. Checks every minute for due backups
+2. Creates automatic backups when scheduled
+3. Applies retention policy after each backup
+4. Deletes old backups beyond retention count
+
+```typescript
+// Scheduler started at server startup
+backupService.startScheduler();
+
+// Check every minute
+this.schedulerInterval = setInterval(() => {
+  this.checkScheduledBackups();
+}, 60000);
+
+// Apply retention policy
+private async applyRetentionPolicy(serverId: string, retentionCount: number) {
+  const autoBackups = this.listBackups(serverId)
+    .filter(b => b.isAutomatic && b.status === 'completed')
+    .sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime());
+
+  const toDelete = autoBackups.slice(retentionCount);
+  for (const backup of toDelete) {
+    await this.deleteBackup(backup.id);
+  }
+}
+```
+
+## URL Route
+
+| Route                    | View           |
+| ------------------------ | -------------- |
+| `/servers/:name/backups` | Backup manager |
+
+## Key Files
+
+| File                                        | Purpose                          |
+| ------------------------------------------- | -------------------------------- |
+| `api-server/src/services/backup-service.ts` | Backup logic and scheduling      |
+| `api-server/src/index.ts`                   | Backup API endpoints             |
+| `frontend/src/BackupManager.tsx`            | Backup UI component              |
+| `frontend/src/api.ts`                       | Backup API client functions      |
+| `k8s/manifests/dev/backup-server.yaml`      | Backup storage PVC & file server |
+
+## UI Components
+
+### Header Bar
+
+- Title with backup count
+- Auto-backup status badge (when enabled)
+- Refresh button
+- Schedule button
+- Create Backup button
+
+### Backup Table Columns
+
+| Column  | Content                                |
+| ------- | -------------------------------------- |
+| Name    | Backup name + description              |
+| Status  | Badge with icon (spinner for progress) |
+| Size    | Human-readable size (e.g., "1.2 GB")   |
+| Created | Relative time (e.g., "2h ago")         |
+| Type    | "Auto" or "Manual" badge               |
+| Actions | Restore, Download, Delete buttons      |
+
+### Schedule Options
+
+| Interval       | Hours |
+| -------------- | ----- |
+| Every hour     | 1     |
+| Every 6 hours  | 6     |
+| Every 12 hours | 12    |
+| Daily          | 24    |
+| Every 2 days   | 48    |
+| Weekly         | 168   |
+
+| Retention  | Count |
+| ---------- | ----- |
+| 3 backups  | 3     |
+| 5 backups  | 5     |
+| 7 backups  | 7     |
+| 14 backups | 14    |
+| 30 backups | 30    |
+
+## Troubleshooting
+
+### Backup Stuck in "Pending"
+
+1. Check if `runBackupJob` is starting: Look for `[BackupService] runBackupJob started` in API logs
+2. If no log appears, the async job may have failed silently
+3. Check API server for errors during backup creation
+
+### Backup Stuck in "In Progress"
+
+1. Check Kubernetes job status: `kubectl get jobs -n minecraft-servers -l app=minecraft-backup`
+2. Check job pod status: `kubectl get pods -n minecraft-servers -l app=minecraft-backup`
+3. Check job logs: `kubectl logs job/backup-<server>-<id> -n minecraft-servers`
+4. Common issues:
+   - PVC not found: Verify PVC name matches `minecraft-data-<server>-0`
+   - Pod pending: Check if backup-storage PVC exists
+   - Timeout: Job has 5 minute max wait time
+
+### Download Returns 404 or Empty File
+
+1. Check backup-server is running: `kubectl get pods -n minecraft-servers -l app=backup-server`
+2. Verify backup file exists via HTTP: `curl http://127.0.0.1:9090/` (lists files as JSON)
+3. Check API server logs for proxy errors
+4. Verify backup status is "completed" before downloading
+5. For local dev, ensure port-forward is running: `kubectl port-forward -n minecraft-servers svc/backup-server 9090:80`
+6. Verify `BACKUP_SERVER_URL=http://127.0.0.1:9090` is set in `api-server/.env`
+
+### Backup Pod Stuck in Pending
+
+1. Check pod events: `kubectl describe pod <backup-pod> -n minecraft-servers`
+2. Common causes:
+   - `minecraft-backups` PVC not created
+   - Source PVC name mismatch (should be `minecraft-data-<server>-0`)
+   - Node resource constraints
+
+### Auto-Backups Not Running
+
+1. Verify schedule is enabled: Check "Auto" badge in header
+2. Check API server logs for `[BackupService] Running scheduled backup`
+3. Verify server is running (backups require running server)
+4. Check scheduler started: Look for `[BackupService] Starting auto-backup scheduler`
+
+### Retention Policy Not Deleting Old Backups
+
+1. Only automatic backups are subject to retention
+2. Manual backups are never auto-deleted
+3. Check if backups are marked as `isAutomatic: true`
+4. Verify retention count in schedule settings

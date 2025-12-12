@@ -34,6 +34,7 @@ import {
   FolderOpen,
   Eye,
   Trash2,
+  Archive,
 } from 'lucide-react';
 import {
   getServer,
@@ -56,13 +57,14 @@ import {
 import { PlayerView } from './PlayerView';
 import { ServerConfigEditor } from './ServerConfigEditor';
 import { PlayerManagement } from './PlayerManagement';
+import { BackupManager } from './BackupManager';
 import type { Server as ServerType } from './types';
 
 interface ServerDetailProps {
   connected: boolean;
 }
 
-type Tab = 'overview' | 'console' | 'players' | 'management' | 'config';
+type Tab = 'overview' | 'console' | 'players' | 'management' | 'backups' | 'config';
 type LogLevel = 'all' | 'error' | 'warn' | 'info';
 
 interface ConsoleEntry {
@@ -97,6 +99,7 @@ const TABS: { id: Tab; label: string; icon: typeof Activity }[] = [
   { id: 'console', label: 'Console', icon: Terminal },
   { id: 'players', label: 'Players', icon: Users },
   { id: 'management', label: 'Management', icon: Shield },
+  { id: 'backups', label: 'Backups', icon: Archive },
   { id: 'config', label: 'Configuration', icon: Settings },
 ];
 
@@ -180,11 +183,11 @@ export function ServerDetail({ connected }: ServerDetailProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serverName]);
 
-  // Refresh metrics and logs periodically (only when not viewing a player detail)
+  // Refresh data periodically - only fetch what's needed for the active tab
   useEffect(() => {
     const interval = setInterval(() => {
-      // Don't refresh metrics when viewing a player detail page
-      if (!playerName) {
+      // Only fetch server/metrics/pod data on overview tab where it's displayed
+      if (activeTab === 'overview') {
         void refreshMetrics();
       }
       if (activeTab === 'console') {
@@ -1393,6 +1396,13 @@ export function ServerDetail({ connected }: ServerDetailProps) {
 
         {activeTab === 'management' && (
           <PlayerManagement
+            serverName={serverName!}
+            isRunning={server.phase?.toLowerCase() === 'running'}
+          />
+        )}
+
+        {activeTab === 'backups' && (
+          <BackupManager
             serverName={serverName!}
             isRunning={server.phase?.toLowerCase() === 'running'}
           />

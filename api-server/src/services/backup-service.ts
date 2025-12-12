@@ -12,6 +12,15 @@ export interface BackupOptions {
   isAutomatic?: boolean;
 }
 
+export interface BackupSchedule {
+  serverId: string;
+  enabled: boolean;
+  intervalHours: number; // Backup interval in hours (e.g., 24 = daily)
+  retentionCount: number; // Max number of backups to keep
+  lastBackupAt?: Date;
+  nextBackupAt?: Date;
+}
+
 export class BackupService {
   private kc: k8s.KubeConfig;
   private batchApi!: k8s.BatchV1Api;
@@ -22,6 +31,8 @@ export class BackupService {
 
   // In-memory backup tracking (would be DB in production)
   private backups: Map<string, BackupSnapshot> = new Map();
+  private schedules: Map<string, BackupSchedule> = new Map();
+  private schedulerInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor(namespace: string = 'minecraft-servers') {
     this.kc = new k8s.KubeConfig();
@@ -94,8 +105,14 @@ export class BackupService {
     });
 
     // Start backup job asynchronously
+    console.log(`[BackupService] Starting backup job for ${backupId}`);
     this.runBackupJob(backup).catch((error) => {
       console.error('[BackupService] Backup %s failed:', backupId, error);
+      // Mark backup as failed if the job fails unexpectedly
+      backup.status = 'failed';
+      backup.errorMessage = error.message || 'Backup job failed unexpectedly';
+      backup.completedAt = new Date();
+      this.backups.set(backupId, backup);
     });
 
     return backup;
@@ -103,11 +120,13 @@ export class BackupService {
 
   // Run the actual backup job
   private async runBackupJob(backup: BackupSnapshot): Promise<void> {
+    console.log(`[BackupService] runBackupJob started for backup ${backup.id}`);
     const jobName = `backup-${backup.serverId}-${backup.id.slice(0, 8)}`;
 
     // Update status to in_progress
     backup.status = 'in_progress';
     this.backups.set(backup.id, backup);
+    console.log(`[BackupService] Backup ${backup.id} status set to in_progress`);
 
     // Check if K8s is available
     if (!this.k8sAvailable) {
@@ -134,6 +153,11 @@ export class BackupService {
     }
 
     try {
+      console.log(`[BackupService] K8s available, creating backup Job: ${jobName}`);
+
+      // Backup filename in the backup PVC
+      const backupFilename = `${backup.serverId}-${backup.id}.tar.gz`;
+
       // Create a Kubernetes Job to perform the backup
       const job: k8s.V1Job = {
         apiVersion: 'batch/v1',
@@ -155,17 +179,27 @@ export class BackupService {
               containers: [
                 {
                   name: 'backup',
-                  image: 'busybox:latest',
+                  image: 'alpine:latest',
                   command: [
                     '/bin/sh',
                     '-c',
-                    `echo "Simulating backup for ${backup.serverId}..." && sleep 5 && echo "Backup complete!"`,
+                    [
+                      `echo "Starting backup for ${backup.serverId}..."`,
+                      `echo "Creating tar.gz archive..."`,
+                      `tar -czf /backups/${backupFilename} -C /data .`,
+                      `ls -lh /backups/${backupFilename}`,
+                      `echo "Backup complete: ${backupFilename}"`,
+                    ].join(' && '),
                   ],
                   volumeMounts: [
                     {
                       name: 'minecraft-data',
                       mountPath: '/data',
                       readOnly: true,
+                    },
+                    {
+                      name: 'backup-storage',
+                      mountPath: '/backups',
                     },
                   ],
                 },
@@ -174,7 +208,14 @@ export class BackupService {
                 {
                   name: 'minecraft-data',
                   persistentVolumeClaim: {
-                    claimName: `${backup.serverId}-data`,
+                    // StatefulSet PVC naming: <volumeClaimTemplate-name>-<pod-name>
+                    claimName: `minecraft-data-${backup.serverId}-0`,
+                  },
+                },
+                {
+                  name: 'backup-storage',
+                  persistentVolumeClaim: {
+                    claimName: 'minecraft-backups',
                   },
                 },
               ],
@@ -324,5 +365,108 @@ export class BackupService {
     // 3. Copy backup data to PVC
     // 4. Restart the server
     console.log(`[BackupService] Would restore backup ${backupId} to server ${backup.serverId}`);
+  }
+
+  // ============== Auto-Backup Schedule Management ==============
+
+  // Get backup schedule for a server
+  getSchedule(serverId: string): BackupSchedule | undefined {
+    return this.schedules.get(serverId);
+  }
+
+  // Set or update backup schedule
+  setSchedule(
+    serverId: string,
+    config: { enabled: boolean; intervalHours: number; retentionCount: number }
+  ): BackupSchedule {
+    const existing = this.schedules.get(serverId);
+    const now = new Date();
+
+    const schedule: BackupSchedule = {
+      serverId,
+      enabled: config.enabled,
+      intervalHours: config.intervalHours,
+      retentionCount: config.retentionCount,
+      lastBackupAt: existing?.lastBackupAt,
+      nextBackupAt: config.enabled
+        ? new Date(now.getTime() + config.intervalHours * 60 * 60 * 1000)
+        : undefined,
+    };
+
+    this.schedules.set(serverId, schedule);
+    console.log(
+      `[BackupService] Schedule ${config.enabled ? 'enabled' : 'disabled'} for server ${serverId}: every ${config.intervalHours}h, keep ${config.retentionCount} backups`
+    );
+
+    return schedule;
+  }
+
+  // Start the auto-backup scheduler
+  startScheduler(): void {
+    if (this.schedulerInterval) return;
+
+    console.log('[BackupService] Starting auto-backup scheduler');
+
+    // Check every minute for backups that need to run
+    this.schedulerInterval = setInterval(() => {
+      this.checkScheduledBackups();
+    }, 60000); // Check every minute
+  }
+
+  // Stop the scheduler
+  stopScheduler(): void {
+    if (this.schedulerInterval) {
+      clearInterval(this.schedulerInterval);
+      this.schedulerInterval = null;
+      console.log('[BackupService] Auto-backup scheduler stopped');
+    }
+  }
+
+  // Check and run scheduled backups
+  private async checkScheduledBackups(): Promise<void> {
+    const now = new Date();
+
+    for (const [serverId, schedule] of this.schedules) {
+      if (!schedule.enabled || !schedule.nextBackupAt) continue;
+
+      if (now >= schedule.nextBackupAt) {
+        console.log(`[BackupService] Running scheduled backup for ${serverId}`);
+
+        try {
+          // Create automatic backup
+          await this.createBackup({
+            serverId,
+            tenantId: 'default-tenant',
+            name: `auto-backup-${new Date().toISOString().split('T')[0]}`,
+            description: 'Automatic scheduled backup',
+            isAutomatic: true,
+          });
+
+          // Update schedule
+          schedule.lastBackupAt = now;
+          schedule.nextBackupAt = new Date(now.getTime() + schedule.intervalHours * 60 * 60 * 1000);
+          this.schedules.set(serverId, schedule);
+
+          // Apply retention policy
+          await this.applyRetentionPolicy(serverId, schedule.retentionCount);
+        } catch (error) {
+          console.error(`[BackupService] Failed scheduled backup for ${serverId}:`, error);
+        }
+      }
+    }
+  }
+
+  // Apply retention policy - delete old backups
+  private async applyRetentionPolicy(serverId: string, retentionCount: number): Promise<void> {
+    const serverBackups = this.listBackups(serverId)
+      .filter((b) => b.isAutomatic && b.status === 'completed')
+      .sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime());
+
+    // Delete backups beyond retention count
+    const toDelete = serverBackups.slice(retentionCount);
+    for (const backup of toDelete) {
+      console.log(`[BackupService] Deleting old backup ${backup.id} (retention policy)`);
+      await this.deleteBackup(backup.id);
+    }
   }
 }

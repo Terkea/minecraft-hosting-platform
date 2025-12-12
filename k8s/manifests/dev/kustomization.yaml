@@ -10,6 +10,8 @@ resources:
   - nats.yaml
   - api-server.yaml
   - operator.yaml
+  - backup-server.yaml
+  - gate.yaml
 
 commonLabels:
   environment: development

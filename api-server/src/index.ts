@@ -2161,6 +2161,151 @@ app.post('/api/v1/backups/:backupId/restore', async (req: Request, res: Response
   }
 });
 
+// Get backup schedule for a server
+app.get('/api/v1/servers/:name/backups/schedule', async (req: Request, res: Response) => {
+  try {
+    const { name } = req.params;
+    const schedule = backupService.getSchedule(name);
+
+    if (!schedule) {
+      // Return default schedule if none exists
+      return res.json({
+        serverId: name,
+        enabled: false,
+        intervalHours: 24,
+        retentionCount: 7,
+      });
+    }
+
+    res.json(schedule);
+  } catch (error: any) {
+    console.error('Failed to get backup schedule:', error);
+    res.status(500).json({
+      error: 'schedule_failed',
+      message: error.message,
+    });
+  }
+});
+
+// Set backup schedule for a server
+interface SetScheduleBody {
+  enabled: boolean;
+  intervalHours: number;
+  retentionCount: number;
+}
+
+app.put(
+  '/api/v1/servers/:name/backups/schedule',
+  async (req: Request<{ name: string }, {}, SetScheduleBody>, res: Response) => {
+    try {
+      const { name } = req.params;
+      const { enabled, intervalHours, retentionCount } = req.body;
+
+      if (typeof enabled !== 'boolean') {
+        return res.status(400).json({
+          error: 'invalid_request',
+          message: 'enabled must be a boolean',
+        });
+      }
+
+      if (!intervalHours || intervalHours < 1) {
+        return res.status(400).json({
+          error: 'invalid_request',
+          message: 'intervalHours must be at least 1',
+        });
+      }
+
+      if (!retentionCount || retentionCount < 1) {
+        return res.status(400).json({
+          error: 'invalid_request',
+          message: 'retentionCount must be at least 1',
+        });
+      }
+
+      const schedule = backupService.setSchedule(name, {
+        enabled,
+        intervalHours,
+        retentionCount,
+      });
+
+      res.json({
+        message: `Backup schedule ${enabled ? 'enabled' : 'disabled'}`,
+        schedule,
+      });
+    } catch (error: any) {
+      console.error('Failed to set backup schedule:', error);
+      res.status(500).json({
+        error: 'schedule_failed',
+        message: error.message,
+      });
+    }
+  }
+);
+
+// Download a backup
+app.get('/api/v1/backups/:backupId/download', async (req: Request, res: Response) => {
+  try {
+    const { backupId } = req.params;
+    const backup = backupService.getBackup(backupId);
+
+    if (!backup) {
+      return res.status(404).json({
+        error: 'not_found',
+        message: `Backup '${backupId}' not found`,
+      });
+    }
+
+    if (backup.status !== 'completed') {
+      return res.status(400).json({
+        error: 'backup_not_ready',
+        message: `Backup is not ready for download (status: ${backup.status})`,
+      });
+    }
+
+    // Backup filename in the backup PVC
+    const backupFilename = `${backup.serverId}-${backup.id}.tar.gz`;
+    const downloadFilename = `${backup.serverId}-${backup.name.replace(/[^a-z0-9]/gi, '-')}.tar.gz`;
+
+    // Backup server URL - NodePort accessible from outside cluster
+    // BACKUP_SERVER_URL should be set to minikube IP + NodePort (e.g., http://192.168.49.2:30090)
+    const backupServerUrl = process.env.BACKUP_SERVER_URL || 'http://192.168.49.2:30090';
+
+    console.log(`[Backup] Downloading ${backupFilename} from ${backupServerUrl}`);
+
+    // Fetch from backup server via NodePort
+    const response = await fetch(`${backupServerUrl}/${backupFilename}`);
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        return res.status(404).json({
+          error: 'backup_file_not_found',
+          message: `Backup file not found on storage server`,
+        });
+      }
+      throw new Error(`Backup server returned ${response.status}`);
+    }
+
+    res.setHeader('Content-Type', 'application/gzip');
+    res.setHeader('Content-Disposition', `attachment; filename="${downloadFilename}"`);
+
+    // Get content length if available
+    const contentLength = response.headers.get('content-length');
+    if (contentLength) {
+      res.setHeader('Content-Length', contentLength);
+    }
+
+    // Buffer and send the response
+    const buffer = await response.arrayBuffer();
+    res.send(Buffer.from(buffer));
+  } catch (error: any) {
+    console.error('Failed to download backup:', error);
+    res.status(500).json({
+      error: 'download_failed',
+      message: error.message,
+    });
+  }
+});
+
 // WebSocket handling
 const wsClients = new Set<WebSocket>();
 
@@ -2304,6 +2449,10 @@ API Endpoints:
   });
   metricsService.startPolling(5000); // Poll every 5 seconds
   console.log('[Startup] Metrics service initialized');
+
+  // Start backup scheduler for auto-backups
+  backupService.startScheduler();
+  console.log('[Startup] Backup scheduler initialized');
 });
 
 // Graceful shutdown
@@ -2311,6 +2460,7 @@ process.on('SIGTERM', () => {
   console.log('[Shutdown] SIGTERM received, shutting down...');
   syncService.stopWatch();
   metricsService.stopPolling();
+  backupService.stopScheduler();
   server.close(() => {
     console.log('[Shutdown] Server closed');
     process.exit(0);
@@ -2321,6 +2471,7 @@ process.on('SIGINT', () => {
   console.log('[Shutdown] SIGINT received, shutting down...');
   syncService.stopWatch();
   metricsService.stopPolling();
+  backupService.stopScheduler();
   server.close(() => {
     console.log('[Shutdown] Server closed');
     process.exit(0);

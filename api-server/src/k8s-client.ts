@@ -743,7 +743,7 @@ export class K8sClient {
   // Execute command via RCON (uses connection pool for efficiency)
   // This maintains a persistent TCP connection, eliminating RCON log spam
   async executeCommand(name: string, command: string): Promise<string> {
-    // When running outside the cluster (local dev), skip RCON pool and use kubectl exec directly
+    // When running outside the cluster (local dev), skip RCON pool and use pod exec directly
     // This avoids the 10 second timeout when RCON pool can't reach minikube
     if (!this.isRunningInCluster()) {
       return this.executeCommandViaExec(name, command);
@@ -766,16 +766,14 @@ export class K8sClient {
         return result;
       }
     } catch (rconError: any) {
-      console.log(
-        `[RCON Pool] Connection failed, falling back to kubectl exec: ${rconError.message}`
-      );
+      console.log(`[RCON Pool] Connection failed, falling back to pod exec: ${rconError.message}`);
     }
 
-    // Fall back to kubectl exec if RCON pool fails
+    // Fall back to pod exec if RCON pool fails
     return this.executeCommandViaExec(name, command);
   }
 
-  // Execute command via kubectl exec (fallback method)
+  // Execute command via Kubernetes exec API (fallback method)
   private async executeCommandViaExec(name: string, command: string): Promise<string> {
     const exec = new k8s.Exec(this.kc);
     const podName = `${name}-0`;

@@ -660,7 +660,7 @@ func (r *MinecraftServerReconciler) updateServerStatus(ctx context.Context, serv
 	return nil
 }
 
-// queryPlayerCount queries the Minecraft server via kubectl exec to run rcon-cli
+// queryPlayerCount queries the Minecraft server via pod exec to run rcon-cli
 func (r *MinecraftServerReconciler) queryPlayerCount(ctx context.Context, server *minecraftv1.MinecraftServer) *rcon.PlayerInfo {
 	logger := log.FromContext(ctx)
 

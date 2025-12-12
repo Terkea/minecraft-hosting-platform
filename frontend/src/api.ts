@@ -648,3 +648,139 @@ export async function feedPlayer(serverName: string, player: string): Promise<Co
     serverName,
   }));
 }
+
+// ============== Backup API ==============
+
+export interface Backup {
+  id: string;
+  serverId: string;
+  tenantId: string;
+  name: string;
+  description?: string;
+  sizeBytes: number;
+  compressionFormat: string;
+  storagePath: string;
+  checksum: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  startedAt: string;
+  completedAt?: string;
+  minecraftVersion: string;
+  worldSize: number;
+  isAutomatic: boolean;
+  tags: string[];
+  errorMessage?: string;
+}
+
+export interface BackupListResponse {
+  backups: Backup[];
+  total: number;
+}
+
+export interface CreateBackupRequest {
+  name?: string;
+  description?: string;
+  tags?: string[];
+}
+
+export async function listBackups(serverName: string): Promise<BackupListResponse> {
+  const response = await fetch(`${API_BASE}/servers/${serverName}/backups`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch backups');
+  }
+  return response.json();
+}
+
+export async function createBackup(
+  serverName: string,
+  options?: CreateBackupRequest
+): Promise<{ message: string; backup: Backup }> {
+  const response = await fetch(`${API_BASE}/servers/${serverName}/backups`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(options || {}),
+  });
+
+  if (!response.ok) {
+    const data = await response.json();
+    throw new Error(data.message || 'Failed to create backup');
+  }
+
+  return response.json();
+}
+
+export async function getBackup(backupId: string): Promise<Backup> {
+  const response = await fetch(`${API_BASE}/backups/${backupId}`);
+  if (!response.ok) {
+    throw new Error('Backup not found');
+  }
+  return response.json();
+}
+
+export async function deleteBackup(backupId: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/backups/${backupId}`, {
+    method: 'DELETE',
+  });
+
+  if (!response.ok) {
+    const data = await response.json();
+    throw new Error(data.message || 'Failed to delete backup');
+  }
+}
+
+export async function restoreBackup(backupId: string): Promise<{ message: string }> {
+  const response = await fetch(`${API_BASE}/backups/${backupId}/restore`, {
+    method: 'POST',
+  });
+
+  if (!response.ok) {
+    const data = await response.json();
+    throw new Error(data.message || 'Failed to restore backup');
+  }
+
+  return response.json();
+}
+
+export async function downloadBackup(backupId: string): Promise<Blob> {
+  const response = await fetch(`${API_BASE}/backups/${backupId}/download`);
+  if (!response.ok) {
+    throw new Error('Failed to download backup');
+  }
+  return response.blob();
+}
+
+// ============== Backup Schedule API ==============
+
+export interface BackupSchedule {
+  serverId: string;
+  enabled: boolean;
+  intervalHours: number;
+  retentionCount: number;
+  lastBackupAt?: string;
+  nextBackupAt?: string;
+}
+
+export async function getBackupSchedule(serverName: string): Promise<BackupSchedule> {
+  const response = await fetch(`${API_BASE}/servers/${serverName}/backups/schedule`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch backup schedule');
+  }
+  return response.json();
+}
+
+export async function setBackupSchedule(
+  serverName: string,
+  config: { enabled: boolean; intervalHours: number; retentionCount: number }
+): Promise<{ message: string; schedule: BackupSchedule }> {
+  const response = await fetch(`${API_BASE}/servers/${serverName}/backups/schedule`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+  });
+
+  if (!response.ok) {
+    const data = await response.json();
+    throw new Error(data.message || 'Failed to set backup schedule');
+  }
+
+  return response.json();
+}
