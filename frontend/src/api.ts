@@ -60,8 +60,8 @@ export async function getServerLogs(name: string, lines: number = 100): Promise<
 export interface ServerMetricsResponse {
   serverName: string;
   metrics: {
-    cpu?: { usage: string; usageNano: number };
-    memory?: { usage: string; usageBytes: number };
+    cpu?: { usage: string; usageNano: number; limit?: string; limitNano?: number };
+    memory?: { usage: string; usageBytes: number; limit?: string; limitBytes?: number };
     uptime?: number;
     uptimeFormatted?: string;
     restartCount: number;

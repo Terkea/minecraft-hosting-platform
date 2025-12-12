@@ -358,14 +358,6 @@ export function ServerDetail({ connected }: ServerDetailProps) {
     }
   };
 
-  const formatBytes = (bytes: number): string => {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
-  };
-
   const handlePlayerSelect = (playerName: string) => {
     // Navigate to player page - details will be fetched by useEffect
     void navigate(`/servers/${serverName}/players/${playerName}`);
@@ -590,28 +582,26 @@ export function ServerDetail({ connected }: ServerDetailProps) {
               </div>
             </div>
 
-            {/* CPU Usage Card */}
+            {/* CPU Card */}
             <div className="bg-gray-800/50 backdrop-blur border border-gray-700 rounded-xl p-5">
-              <h3 className="text-sm font-medium text-gray-400 mb-4">CPU Usage</h3>
+              <h3 className="text-sm font-medium text-gray-400 mb-4">CPU</h3>
               <div className="flex items-center gap-4">
                 <Cpu className="w-10 h-10 text-yellow-400" />
                 <div>
-                  <p className="text-3xl font-bold text-white">{metrics?.cpu?.usage || '---'}</p>
-                  <p className="text-sm text-gray-400">Current usage</p>
+                  <p className="text-3xl font-bold text-white">{metrics?.cpu?.limit || '---'}</p>
+                  <p className="text-sm text-gray-400">Allocated</p>
                 </div>
               </div>
             </div>
 
-            {/* Memory Usage Card */}
+            {/* Memory Card */}
             <div className="bg-gray-800/50 backdrop-blur border border-gray-700 rounded-xl p-5">
-              <h3 className="text-sm font-medium text-gray-400 mb-4">Memory Usage</h3>
+              <h3 className="text-sm font-medium text-gray-400 mb-4">Memory</h3>
               <div className="flex items-center gap-4">
                 <HardDrive className="w-10 h-10 text-purple-400" />
                 <div>
-                  <p className="text-3xl font-bold text-white">
-                    {metrics?.memory ? formatBytes(metrics.memory.usageBytes) : '---'}
-                  </p>
-                  <p className="text-sm text-gray-400">Current usage</p>
+                  <p className="text-3xl font-bold text-white">{metrics?.memory?.limit || '---'}</p>
+                  <p className="text-sm text-gray-400">Allocated</p>
                 </div>
               </div>
             </div>

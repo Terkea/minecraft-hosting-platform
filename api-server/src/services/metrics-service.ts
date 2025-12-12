@@ -5,10 +5,18 @@ export interface PodMetrics {
   cpu: {
     usage: string; // e.g., "250m" (millicores)
     usageNano: number; // nanoseconds
+    limit?: string; // e.g., "2" (cores) or "2000m"
+    limitNano?: number;
+    request?: string;
+    requestNano?: number;
   };
   memory: {
     usage: string; // e.g., "512Mi"
     usageBytes: number; // bytes
+    limit?: string;
+    limitBytes?: number;
+    request?: string;
+    requestBytes?: number;
   };
   timestamp: Date;
 }
@@ -133,6 +141,13 @@ export class MetricsService {
           ? Math.floor((Date.now() - startTime.getTime()) / 1000)
           : undefined;
 
+        // Get resource limits from pod spec
+        const containerSpec = pod.spec?.containers?.[0];
+        const cpuLimit = containerSpec?.resources?.limits?.cpu;
+        const cpuRequest = containerSpec?.resources?.requests?.cpu;
+        const memLimit = containerSpec?.resources?.limits?.memory;
+        const memRequest = containerSpec?.resources?.requests?.memory;
+
         const serverMetrics: ServerMetrics = {
           name: serverName,
           restartCount: containerStatus?.restartCount || 0,
@@ -150,10 +165,18 @@ export class MetricsService {
             cpu: {
               usage: container.usage?.cpu || '0',
               usageNano: this.parseCpuToNano(container.usage?.cpu || '0'),
+              limit: cpuLimit,
+              limitNano: cpuLimit ? this.parseCpuToNano(cpuLimit) : undefined,
+              request: cpuRequest,
+              requestNano: cpuRequest ? this.parseCpuToNano(cpuRequest) : undefined,
             },
             memory: {
               usage: container.usage?.memory || '0',
               usageBytes: this.parseMemoryToBytes(container.usage?.memory || '0'),
+              limit: memLimit,
+              limitBytes: memLimit ? this.parseMemoryToBytes(memLimit) : undefined,
+              request: memRequest,
+              requestBytes: memRequest ? this.parseMemoryToBytes(memRequest) : undefined,
             },
             timestamp: new Date(podMetric.timestamp),
           };

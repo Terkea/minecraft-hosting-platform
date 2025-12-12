@@ -734,8 +734,26 @@ app.get('/api/v1/servers/:name/metrics', async (req: Request, res: Response) => 
     res.json({
       serverName: name,
       metrics: {
-        cpu: metrics.pod?.cpu,
-        memory: metrics.pod?.memory,
+        cpu: metrics.pod?.cpu
+          ? {
+              usage: MetricsService.formatCpu(metrics.pod.cpu.usageNano),
+              usageNano: metrics.pod.cpu.usageNano,
+              limit: metrics.pod.cpu.limitNano
+                ? MetricsService.formatCpu(metrics.pod.cpu.limitNano)
+                : undefined,
+              limitNano: metrics.pod.cpu.limitNano,
+            }
+          : undefined,
+        memory: metrics.pod?.memory
+          ? {
+              usage: MetricsService.formatBytes(metrics.pod.memory.usageBytes),
+              usageBytes: metrics.pod.memory.usageBytes,
+              limit: metrics.pod.memory.limitBytes
+                ? MetricsService.formatBytes(metrics.pod.memory.limitBytes)
+                : undefined,
+              limitBytes: metrics.pod.memory.limitBytes,
+            }
+          : undefined,
         uptime: metrics.uptime,
         uptimeFormatted: metrics.uptime ? MetricsService.formatUptime(metrics.uptime) : undefined,
         restartCount: metrics.restartCount,
@@ -760,7 +778,12 @@ app.get('/api/v1/metrics', async (_req: Request, res: Response) => {
 
     allMetrics.forEach((metrics, serverName) => {
       metricsObj[serverName] = {
-        cpu: metrics.pod?.cpu,
+        cpu: metrics.pod?.cpu
+          ? {
+              usage: MetricsService.formatCpu(metrics.pod.cpu.usageNano),
+              usageNano: metrics.pod.cpu.usageNano,
+            }
+          : undefined,
         memory: metrics.pod?.memory,
         uptime: metrics.uptime,
         uptimeFormatted: metrics.uptime ? MetricsService.formatUptime(metrics.uptime) : undefined,
