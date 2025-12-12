@@ -1022,7 +1022,7 @@ app.get('/api/v1/servers/:name/players', async (req: Request, res: Response) => 
           gameMode,
           gameModeName,
         };
-      } catch (err) {
+      } catch {
         // Return minimal data on error
         return {
           name: playerName,
@@ -1290,46 +1290,6 @@ function parsePlayerDataFromFields(playerName: string, results: string[]): any {
   return player;
 }
 
-// Return minimal player data (when detailed fetch fails or is disabled)
-function getMinimalPlayerData(playerName: string): any {
-  return {
-    name: playerName,
-    health: 20,
-    maxHealth: 20,
-    foodLevel: 20,
-    foodSaturation: 5,
-    xpLevel: 0,
-    xpTotal: 0,
-    gameMode: 0,
-    gameModeName: 'Survival',
-    position: { x: 0, y: 64, z: 0 },
-    dimension: 'overworld',
-    rotation: { yaw: 0, pitch: 0 },
-    air: 300,
-    fire: -20,
-    onGround: true,
-    isFlying: false,
-    inventory: [],
-    equipment: {
-      head: null,
-      chest: null,
-      legs: null,
-      feet: null,
-      offhand: null,
-    },
-    enderItems: [],
-    selectedSlot: 0,
-    abilities: {
-      invulnerable: false,
-      mayFly: false,
-      instabuild: false,
-      flying: false,
-      walkSpeed: 0.1,
-      flySpeed: 0.05,
-    },
-  };
-}
-
 // Parse player NBT data from "data get entity" command
 function _parsePlayerData(playerName: string, nbtString: string): any {
   const player: any = {
@@ -1595,7 +1555,7 @@ app.get('/api/v1/servers/:name/whitelist', async (req: Request, res: Response) =
 
     // Parse "There are X whitelisted players: player1, player2" or "There are no whitelisted players"
     const match = result.match(/There are (\d+) whitelisted players?:\s*(.*)/i);
-    const noPlayersMatch = result.match(/There are no whitelisted players/i);
+    const _noPlayersMatch = result.match(/There are no whitelisted players/i);
 
     let players: string[] = [];
     if (match && match[2]) {
@@ -1706,7 +1666,7 @@ app.put(
 // Get ops list
 app.get('/api/v1/servers/:name/ops', async (req: Request, res: Response) => {
   try {
-    const { name } = req.params;
+    const { name: _name } = req.params;
     // Note: Minecraft doesn't have a direct "op list" command, we need to use /list with parse
     // However, we can check if players are opped by trying to get their op level
     // For now, we'll return empty and let frontend manage from create config
@@ -1788,7 +1748,7 @@ app.get('/api/v1/servers/:name/bans', async (req: Request, res: Response) => {
 
     // Parse "There are X ban(s):" followed by list or "There are no bans"
     const match = result.match(/There are (\d+) ban\(s\):\s*(.*)/is);
-    const noBansMatch = result.match(/There are no bans/i);
+    const _noBansMatch = result.match(/There are no bans/i);
 
     let players: string[] = [];
     if (match && match[2]) {

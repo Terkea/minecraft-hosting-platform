@@ -409,7 +409,7 @@ export class BackupService {
 
     // Check every minute for backups that need to run
     this.schedulerInterval = setInterval(() => {
-      this.checkScheduledBackups();
+      void this.checkScheduledBackups();
     }, 60000); // Check every minute
   }
 
