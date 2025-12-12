@@ -49,7 +49,20 @@ export interface MetricsUpdate {
 }
 
 export interface WebSocketMessage {
-  type: 'initial' | 'created' | 'deleted' | 'status_update' | 'metrics_update';
+  type:
+    | 'initial'
+    | 'created'
+    | 'deleted'
+    | 'status_update'
+    | 'metrics_update'
+    | 'started'
+    | 'stopped'
+    | 'updated'
+    | 'scaled'
+    | 'modified'
+    | 'added'
+    | 'auto_stop_configured'
+    | 'auto_start_configured';
   servers?: Server[];
   server?: Server;
   metrics?: MetricsUpdate;

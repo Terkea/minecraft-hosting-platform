@@ -41,6 +41,12 @@ type MinecraftServerSpec struct {
 
 	// Backup configuration
 	Backup *BackupConfig `json:"backup,omitempty"`
+
+	// AutoStop configuration for automatic shutdown on inactivity
+	AutoStop *AutoStopConfig `json:"autoStop,omitempty"`
+
+	// AutoStart configuration for automatic startup when player connects
+	AutoStart *AutoStartConfig `json:"autoStart,omitempty"`
 }
 
 // MinecraftServerResources defines resource requirements
@@ -145,6 +151,26 @@ type BackupConfig struct {
 	StorageClass string `json:"storageClass,omitempty"`
 }
 
+// AutoStopConfig defines automatic shutdown settings
+type AutoStopConfig struct {
+	// Enabled indicates if auto-stop should be enabled
+	// +kubebuilder:default=false
+	Enabled bool `json:"enabled,omitempty"`
+
+	// IdleTimeoutMinutes is how long to wait with no players before stopping
+	// +kubebuilder:default=3
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=1440
+	IdleTimeoutMinutes int `json:"idleTimeoutMinutes,omitempty"`
+}
+
+// AutoStartConfig defines automatic startup settings
+type AutoStartConfig struct {
+	// Enabled indicates if auto-start should be enabled (wake-on-connect)
+	// +kubebuilder:default=false
+	Enabled bool `json:"enabled,omitempty"`
+}
+
 // MinecraftServerStatus defines the observed state of MinecraftServer
 type MinecraftServerStatus struct {
 	// Phase represents the current phase of the server
@@ -180,6 +206,12 @@ type MinecraftServerStatus struct {
 
 	// LastBackup is the timestamp of the last successful backup
 	LastBackup *metav1.Time `json:"lastBackup,omitempty"`
+
+	// LastPlayerActivity is when players were last online (for auto-stop)
+	LastPlayerActivity *metav1.Time `json:"lastPlayerActivity,omitempty"`
+
+	// AutoStoppedAt is when the server was auto-stopped (for auto-start wake tracking)
+	AutoStoppedAt *metav1.Time `json:"autoStoppedAt,omitempty"`
 }
 
 // InstalledPlugin represents an installed plugin

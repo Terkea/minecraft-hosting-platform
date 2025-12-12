@@ -332,6 +332,102 @@ app.post(
   }
 );
 
+// Configure auto-stop settings
+interface AutoStopBody {
+  enabled: boolean;
+  idleTimeoutMinutes?: number;
+}
+
+app.put(
+  '/api/v1/servers/:name/auto-stop',
+  async (req: Request<{ name: string }, {}, AutoStopBody>, res: Response) => {
+    try {
+      const { name } = req.params;
+      const { enabled, idleTimeoutMinutes } = req.body;
+
+      if (typeof enabled !== 'boolean') {
+        return res.status(400).json({
+          error: 'invalid_request',
+          message: 'enabled (boolean) is required',
+        });
+      }
+
+      const server = await k8sClient.configureAutoStop(name, {
+        enabled,
+        idleTimeoutMinutes,
+      });
+
+      broadcastServerUpdate('auto_stop_configured', server);
+
+      res.json({
+        message: `Auto-stop ${enabled ? 'enabled' : 'disabled'} for server '${name}'`,
+        server,
+      });
+    } catch (error: any) {
+      console.error('Failed to configure auto-stop:', error);
+
+      if (error.message.includes('not found')) {
+        return res.status(404).json({
+          error: 'not_found',
+          message: error.message,
+        });
+      }
+
+      res.status(500).json({
+        error: 'auto_stop_config_failed',
+        message: error.message,
+      });
+    }
+  }
+);
+
+// Configure auto-start settings
+interface AutoStartBody {
+  enabled: boolean;
+}
+
+app.put(
+  '/api/v1/servers/:name/auto-start',
+  async (req: Request<{ name: string }, {}, AutoStartBody>, res: Response) => {
+    try {
+      const { name } = req.params;
+      const { enabled } = req.body;
+
+      if (typeof enabled !== 'boolean') {
+        return res.status(400).json({
+          error: 'invalid_request',
+          message: 'enabled (boolean) is required',
+        });
+      }
+
+      const server = await k8sClient.configureAutoStart(name, {
+        enabled,
+      });
+
+      broadcastServerUpdate('auto_start_configured', server);
+
+      res.json({
+        message: `Auto-start ${enabled ? 'enabled' : 'disabled'} for server '${name}'`,
+        server,
+      });
+    } catch (error: any) {
+      console.error('Failed to configure auto-start:', error);
+
+      if (error.message.includes('not found')) {
+        return res.status(404).json({
+          error: 'not_found',
+          message: error.message,
+        });
+      }
+
+      res.status(500).json({
+        error: 'auto_start_config_failed',
+        message: error.message,
+      });
+    }
+  }
+);
+
 // Stop a server (scale StatefulSet to 0)
 app.post('/api/v1/servers/:name/stop', async (req: Request, res: Response) => {
   try {
@@ -1282,6 +1378,8 @@ API Endpoints:
     POST   /api/v1/servers/:name/stop   - Stop a server
     POST   /api/v1/servers/:name/start  - Start a server
     POST   /api/v1/servers/:name/console - Execute RCON command
+    PUT    /api/v1/servers/:name/auto-stop  - Configure auto-stop
+    PUT    /api/v1/servers/:name/auto-start - Configure auto-start
 
   Backups:
     POST   /api/v1/servers/:name/backups - Create a backup

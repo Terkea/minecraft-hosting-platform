@@ -55,6 +55,31 @@ export function useWebSocket() {
               );
             }
             break;
+
+          // Handle individual server updates (started, stopped, updated, etc.)
+          case 'started':
+          case 'stopped':
+          case 'updated':
+          case 'scaled':
+          case 'modified':
+          case 'added':
+          case 'auto_stop_configured':
+          case 'auto_start_configured':
+            if (message.server) {
+              setServers((prev) => {
+                // Check if server already exists
+                const exists = prev.some((s) => s.name === message.server!.name);
+                if (!exists && message.type === 'added') {
+                  // Add new server
+                  return [...prev, message.server!];
+                }
+                // Update existing server
+                return prev.map((s) =>
+                  s.name === message.server!.name ? { ...s, ...message.server! } : s
+                );
+              });
+            }
+            break;
         }
       } catch (error) {
         console.error('Failed to parse WebSocket message:', error);

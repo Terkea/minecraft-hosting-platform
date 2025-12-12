@@ -95,7 +95,9 @@ function App() {
         return 'bg-green-500';
       case 'pending':
       case 'starting':
-        return 'bg-yellow-500';
+        return 'bg-yellow-500 animate-pulse';
+      case 'stopping':
+        return 'bg-orange-500 animate-pulse';
       case 'error':
       case 'failed':
         return 'bg-red-500';
@@ -239,17 +241,30 @@ function App() {
                       <Play className="w-4 h-4" />
                       Start
                     </button>
+                  ) : server.phase?.toLowerCase() === 'starting' ||
+                    server.phase?.toLowerCase() === 'pending' ? (
+                    <button
+                      disabled
+                      className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-yellow-500/20 text-yellow-400 rounded-lg opacity-50 cursor-not-allowed"
+                    >
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      Starting...
+                    </button>
+                  ) : server.phase?.toLowerCase() === 'stopping' ? (
+                    <button
+                      disabled
+                      className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-orange-500/20 text-orange-400 rounded-lg opacity-50 cursor-not-allowed"
+                    >
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      Stopping...
+                    </button>
                   ) : (
                     <button
                       onClick={() => handleStop(server.name)}
-                      disabled={
-                        server.phase?.toLowerCase() === 'stopping' ||
-                        server.phase?.toLowerCase() === 'starting'
-                      }
-                      className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-400 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-400 rounded-lg transition-colors"
                     >
                       <Square className="w-4 h-4" />
-                      {server.phase?.toLowerCase() === 'stopping' ? 'Stopping...' : 'Stop'}
+                      Stop
                     </button>
                   )}
                   <button

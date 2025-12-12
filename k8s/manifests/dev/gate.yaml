@@ -1,0 +1,97 @@
+---
+# Gate Minecraft Proxy - Lite mode with fallback MOTD for offline servers
+# Provides Aternos-style experience: custom MOTD when servers are down
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gate-config
+  namespace: minecraft-servers
+data:
+  config.yml: |
+    # Gate Lite Mode - reverse proxy with fallback MOTD
+    config:
+      bind: 0.0.0.0:25565
+      lite:
+        enabled: true
+        routes:
+          # Default route for all connections
+          - host: "*"
+            backend: hehe.minecraft-servers.svc.cluster.local:25565
+            # Fallback shown when backend is offline
+            fallback:
+              motd: |
+                §cServer is offline
+                §eStart it from the dashboard!
+              version:
+                name: "§cOffline"
+                protocol: -1
+              # 64x64 PNG icon, base64 encoded (red/gray "offline" icon)
+              favicon: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAABhGlDQ1BJQ0MgcHJvZmlsZQAAKJF9kT1Iw0AcxV9TpSIVBzuIOGSoThZERRy1CkWoEGqFVh1MLv2CJg1Jiouj4Fpw8GOx6uDirKuDqyAIfoC4uTkpukiJ/0sKLWI8OO7Hu3uPu3eAUC8zzeoYBzTdNlOJuJjJroqhV4QxiABi6JWZZcxJUhK+4+seAb7exXiW/7k/R4+asxgQEIlnmWHaxBvE05u2wXmfOMKKskp8Tjxm0gWJH7muePzGueCywDMjZjo1TxwhFgttrLQxK5oa8RRxVNV0yhcyHquctzhr5Spr3pO/MJzTV5a5TnMYCSxiCRJEKKiihDJsxGjVSbGQov24j3/I9UvkUshVBiPHAqrQILt+8D/43a1VmJzwksIJoPvFcT5GgNAu0Kw7zvex4zRPAP8zcKW3/dUGMPtJer2tRY+A/m3g4rqtKXvA5Q4w+KRLhuRIfppCoQC8n9E35YDwLdC35vXW2sfpA5ChrlI3wMEhMFqk7HWfd3d39vbvmVZ/P2tXcpTrYKbiAAAABmJLR0QA/wD/AP+gvaeTAAAACXBIWXMAAC4jAAAuIwF4pT92AAAAB3RJTUUH6AwMCgEdNR4yKgAAAuZJREFUeNrtm79u2zAQxn+U4NbBAZq1W4cORYE+QNYs3fIAfYK+gZ8gT9DMS6cuHbsUKAp07dItgwMkVvh1oGRZpmTJkSN99DdI8Sl+vDse7+5IiqIoiqIoiqIoiqIoiqL8D8w2ePJxYAxg0zWAiACI6LoOsRWvWeCQ/eNJRHYi8kpE3orIAxG5e64Aql4EjQEcAWPgETAFHgNT4FlT2KMG4DVwG7gB3ALuAreB68BN4Fb1wM1qoPo2VENTLVAJBqgJwAAG+AZcAaaVYH4Ah9XADeA6MAWuVQPV53F1j6a+Rr1f/fM6B/4GDipBfQemwCXgG/C16u+qf+5+J7VfMBwCX6r7+hXwuervS0JcFgWxC5xU/X4JuAh8Bu5V/f0BOAK+l4S4FAqiHDitPn8GbgCHwEVgB/gI7ABfgO/AroBfVl8A3wQGFXi5EKouiF3gE/AB+Aj8AP4EDoDD0hAXREFsA8fAWWPQH8Bx9e8Z8NNymr0A/gb+An4DfwJ/Ar+r/rZxO80dePFdoLJAJYgrwDHwI/AH8AO4DFyu+nsC/ARcrfrbxnU3g4wLCmILOKt1+hT4s/J7Fziq+vsicKnq75PAb8Dlqr9PASeBf4DLwJXq37vAL8AvVX9fBS5W/T0Gfq76e9sC3nA6sPEzgJHOA8Bd4BTwU9XfV4Crhd+r/t4Fjqu/rwHjwO+V/50ELhZ+B46r+9ou/AcB3wQqHRgBfwM/AP8Au8AV4Lj6/RpwqfB7UPV3u/A7E/hVYFI9VH+zfP8D/F74XSr8zi8hF4Hd8m9ggO3C75Xf20zHu4IgrgAHlQ7sAL8Df1f9e7fw+71y/64Ffqv63Q/8VvV3v+q/UQ1drc+2JYE7+VPVnx2gfuLVg/4O/FH1d7+awl6s+rtX9fcO8Fvl957V7SJiP/fvuPC7U/V7wC6LewwUBHHm++9y1dddwC4XfrdB9L6rB6pdBVb9fT4I/E53NZeI/QBgfQDYLXCd2VoAAAAASUVORK5CYII="
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gate
+  namespace: minecraft-servers
+  labels:
+    app: gate
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gate
+  template:
+    metadata:
+      labels:
+        app: gate
+    spec:
+      containers:
+        - name: gate
+          image: ghcr.io/minekube/gate:latest
+          args:
+            - --config=/etc/gate/config.yml
+          ports:
+            - containerPort: 25565
+              name: minecraft
+              protocol: TCP
+          volumeMounts:
+            - name: config
+              mountPath: /etc/gate
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          livenessProbe:
+            tcpSocket:
+              port: 25565
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            tcpSocket:
+              port: 25565
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: config
+          configMap:
+            name: gate-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gate
+  namespace: minecraft-servers
+  labels:
+    app: gate
+spec:
+  type: LoadBalancer
+  selector:
+    app: gate
+  ports:
+    - name: minecraft
+      port: 25565
+      targetPort: 25565
+      protocol: TCP

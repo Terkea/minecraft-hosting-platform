@@ -109,9 +109,32 @@ func (r *MinecraftServerReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, err
 	}
 
+	// Check if server should be auto-stopped due to inactivity
+	autoStopped, err := r.checkAutoStop(ctx, &minecraftServer)
+	if err != nil {
+		logger.Error(err, "Failed to check auto-stop")
+		// Continue anyway, not fatal
+	}
+	if autoStopped {
+		logger.Info("Server was auto-stopped, requeuing immediately")
+		return ctrl.Result{Requeue: true}, nil
+	}
+
 	logger.Info("Successfully reconciled MinecraftServer")
-	// Reconcile every 2 minutes to reduce RCON spam from player count queries
-	return ctrl.Result{RequeueAfter: 120 * time.Second}, nil
+
+	// Determine requeue interval based on auto-stop settings
+	// If auto-stop is enabled and server is running with no players,
+	// we need to check more frequently
+	requeueAfter := 120 * time.Second
+	if minecraftServer.Spec.AutoStop != nil &&
+		minecraftServer.Spec.AutoStop.Enabled &&
+		minecraftServer.Status.Phase == "Running" &&
+		minecraftServer.Status.PlayerCount == 0 {
+		// Check every 30 seconds when idle to catch auto-stop trigger
+		requeueAfter = 30 * time.Second
+	}
+
+	return ctrl.Result{RequeueAfter: requeueAfter}, nil
 }
 
 // handleDeletion handles the deletion of MinecraftServer resources
@@ -167,7 +190,7 @@ func (r *MinecraftServerReconciler) reconcileConfigMap(ctx context.Context, serv
 func (r *MinecraftServerReconciler) reconcileService(ctx context.Context, server *minecraftv1.MinecraftServer) error {
 	service := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-service", server.Name),
+			Name:      server.Name,
 			Namespace: server.Namespace,
 		},
 	}
@@ -176,6 +199,22 @@ func (r *MinecraftServerReconciler) reconcileService(ctx context.Context, server
 		// Set owner reference
 		if err := controllerutil.SetControllerReference(server, service, r.Scheme); err != nil {
 			return err
+		}
+
+		// Add mc-router annotations for auto-discovery and wake-on-connect
+		if service.Annotations == nil {
+			service.Annotations = make(map[string]string)
+		}
+		// Use server name as the hostname for mc-router routing
+		// For local development with Windows Docker Desktop, the Minecraft client sends
+		// "kubernetes.docker.internal" when connecting through kubectl port-forward
+		// TODO: Make this configurable via MinecraftServer spec for production deployments
+		service.Annotations["mc-router.itzg.me/externalServerName"] = "kubernetes.docker.internal"
+		// Enable auto-scale-up when player connects to stopped server
+		if server.Spec.AutoStart != nil && server.Spec.AutoStart.Enabled {
+			service.Annotations["mc-router.itzg.me/autoScaleUp"] = "true"
+		} else {
+			delete(service.Annotations, "mc-router.itzg.me/autoScaleUp")
 		}
 
 		// Configure service
@@ -226,14 +265,29 @@ func (r *MinecraftServerReconciler) reconcileStatefulSet(ctx context.Context, se
 			return err
 		}
 
+		// Set labels on StatefulSet metadata (required for mc-router auto-scale-up)
+		statefulSet.Labels = map[string]string{
+			"app":       server.Name,
+			"tenant":    server.Spec.TenantID,
+			"server-id": server.Spec.ServerID,
+		}
+
 		// Configure StatefulSet - set replicas based on Stopped field
+		// When autoStart is enabled, preserve replicas if mc-router scaled it up
 		replicas := int32(1)
 		if server.Spec.Stopped {
-			replicas = int32(0)
+			// Check if autoStart is enabled and the StatefulSet was externally scaled up (by mc-router)
+			if server.Spec.AutoStart != nil && server.Spec.AutoStart.Enabled &&
+				statefulSet.Spec.Replicas != nil && *statefulSet.Spec.Replicas > 0 {
+				// Preserve the current replica count - mc-router scaled it up for wake-on-connect
+				replicas = *statefulSet.Spec.Replicas
+			} else {
+				replicas = int32(0)
+			}
 		}
 		statefulSet.Spec = appsv1.StatefulSetSpec{
 			Replicas:    &replicas,
-			ServiceName: fmt.Sprintf("%s-service", server.Name),
+			ServiceName: server.Name,
 			Selector: &metav1.LabelSelector{
 				MatchLabels: map[string]string{
 					"app": server.Name,
@@ -464,7 +518,7 @@ func (r *MinecraftServerReconciler) updateServerStatus(ctx context.Context, serv
 	var externalIP string
 	var externalPort int32 = 25565
 	if err := r.Get(ctx, types.NamespacedName{
-		Name:      fmt.Sprintf("%s-service", server.Name),
+		Name:      server.Name,
 		Namespace: server.Namespace,
 	}, service); err == nil {
 		// Try to get external IP from LoadBalancer
@@ -489,7 +543,12 @@ func (r *MinecraftServerReconciler) updateServerStatus(ctx context.Context, serv
 	previousPhase := server.Status.Phase
 
 	// Check if server is intentionally stopped
-	if server.Spec.Stopped {
+	// BUT: if autoStart is enabled and the server is running (mc-router scaled it up), show Running status
+	autoStartRunning := server.Spec.Stopped &&
+		server.Spec.AutoStart != nil && server.Spec.AutoStart.Enabled &&
+		statefulSet.Spec.Replicas != nil && *statefulSet.Spec.Replicas > 0
+
+	if server.Spec.Stopped && !autoStartRunning {
 		if statefulSet.Status.Replicas > 0 {
 			phase = "Stopping"
 			message = "Server is stopping"
@@ -521,6 +580,12 @@ func (r *MinecraftServerReconciler) updateServerStatus(ctx context.Context, serv
 		if playerInfo != nil {
 			server.Status.PlayerCount = playerInfo.Online
 			server.Status.MaxPlayers = playerInfo.Max
+
+			// Track player activity for auto-stop
+			if playerInfo.Online > 0 {
+				now := metav1.Now()
+				server.Status.LastPlayerActivity = &now
+			}
 		}
 	} else {
 		// Reset player count when not running
@@ -665,6 +730,131 @@ func (r *MinecraftServerReconciler) updateStatus(ctx context.Context, server *mi
 	}
 
 	return ctrl.Result{RequeueAfter: requeueAfter}, nil
+}
+
+// checkAutoStop checks if the server should be automatically stopped due to inactivity
+// Returns true if the server was auto-stopped
+func (r *MinecraftServerReconciler) checkAutoStop(ctx context.Context, server *minecraftv1.MinecraftServer) (bool, error) {
+	logger := log.FromContext(ctx)
+
+	// Check if auto-stop is enabled
+	if server.Spec.AutoStop == nil || !server.Spec.AutoStop.Enabled {
+		return false, nil
+	}
+
+	// Don't auto-stop if server is already stopped or stopping
+	if server.Status.Phase == "Stopped" || server.Status.Phase == "Stopping" {
+		return false, nil
+	}
+
+	// Don't auto-stop if spec.stopped=true (server is meant to be stopped)
+	// unless autoStart woke it up and a player has connected since
+	if server.Spec.Stopped {
+		// If autoStart is NOT enabled, don't auto-stop - operator will scale down
+		if server.Spec.AutoStart == nil || !server.Spec.AutoStart.Enabled {
+			return false, nil
+		}
+		// If server was previously auto-stopped and no player activity since, don't re-trigger
+		// This prevents the infinite loop where auto-stop keeps triggering
+		if server.Status.AutoStoppedAt != nil {
+			if server.Status.LastPlayerActivity == nil ||
+				server.Status.LastPlayerActivity.Time.Before(server.Status.AutoStoppedAt.Time) {
+				return false, nil
+			}
+		}
+	}
+
+	// Don't auto-stop if server isn't running yet
+	if server.Status.Phase != "Running" {
+		return false, nil
+	}
+
+	// Don't auto-stop if there are players online
+	if server.Status.PlayerCount > 0 {
+		return false, nil
+	}
+
+	// Get idle timeout (default to 3 minutes if not set)
+	idleTimeoutMinutes := server.Spec.AutoStop.IdleTimeoutMinutes
+	if idleTimeoutMinutes == 0 {
+		idleTimeoutMinutes = 3
+	}
+
+	// Check if we've been idle long enough
+	var idleSince time.Time
+	if server.Status.LastPlayerActivity != nil {
+		idleSince = server.Status.LastPlayerActivity.Time
+	} else {
+		// If no player activity recorded, use server creation time
+		idleSince = server.CreationTimestamp.Time
+	}
+
+	idleDuration := time.Since(idleSince)
+	idleTimeout := time.Duration(idleTimeoutMinutes) * time.Minute
+
+	if idleDuration < idleTimeout {
+		logger.V(1).Info("Server is idle but timeout not reached yet",
+			"idleDuration", idleDuration.String(),
+			"idleTimeout", idleTimeout.String(),
+		)
+		return false, nil
+	}
+
+	// Auto-stop the server
+	logger.Info("Auto-stopping server due to inactivity",
+		"serverID", server.Spec.ServerID,
+		"idleDuration", idleDuration.String(),
+		"idleTimeout", idleTimeout.String(),
+	)
+
+	// Set the stopped flag
+	server.Spec.Stopped = true
+
+	if err := r.Update(ctx, server); err != nil {
+		return false, fmt.Errorf("failed to update server spec for auto-stop: %w", err)
+	}
+
+	// Re-fetch the server to get the updated resourceVersion before status update
+	if err := r.Get(ctx, types.NamespacedName{Name: server.Name, Namespace: server.Namespace}, server); err != nil {
+		logger.Error(err, "Failed to re-fetch server after spec update")
+		// Continue anyway - the spec update was successful
+	} else {
+		// Record when we auto-stopped (status update is separate from spec update)
+		now := metav1.Now()
+		server.Status.AutoStoppedAt = &now
+		if err := r.Status().Update(ctx, server); err != nil {
+			logger.Error(err, "Failed to update server status for auto-stop timestamp")
+			// Continue even if status update fails - the main spec.stopped=true is already set
+		}
+	}
+
+	// Directly scale down the StatefulSet to 0 to prevent the preserve logic
+	// from incorrectly keeping it running (when autoStart is enabled)
+	statefulSet := &appsv1.StatefulSet{}
+	if err := r.Get(ctx, types.NamespacedName{Name: server.Name, Namespace: server.Namespace}, statefulSet); err == nil {
+		zero := int32(0)
+		if statefulSet.Spec.Replicas == nil || *statefulSet.Spec.Replicas != 0 {
+			statefulSet.Spec.Replicas = &zero
+			if err := r.Update(ctx, statefulSet); err != nil {
+				logger.Error(err, "Failed to scale down StatefulSet during auto-stop")
+			} else {
+				logger.Info("Scaled down StatefulSet during auto-stop", "replicas", 0)
+			}
+		}
+	}
+
+	// Publish auto-stop event
+	if r.EventPublisher != nil {
+		if err := r.EventPublisher.PublishServerStopped(
+			server.Spec.ServerID,
+			server.Spec.TenantID,
+			server.Namespace,
+		); err != nil {
+			logger.Error(err, "Failed to publish auto-stop event")
+		}
+	}
+
+	return true, nil
 }
 
 // SetupWithManager sets up the controller with the Manager

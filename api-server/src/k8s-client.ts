@@ -3,6 +3,15 @@ import { Writable } from 'stream';
 import { rconPool } from './utils/rcon-pool.js';
 
 // MinecraftServer CRD types
+export interface AutoStopConfig {
+  enabled: boolean;
+  idleTimeoutMinutes?: number; // Default: 3, Min: 1, Max: 1440
+}
+
+export interface AutoStartConfig {
+  enabled: boolean;
+}
+
 export interface MinecraftServerSpec {
   serverId: string;
   tenantId: string;
@@ -28,6 +37,8 @@ export interface MinecraftServerSpec {
     pvp: boolean;
     enableCommandBlock: boolean;
   };
+  autoStop?: AutoStopConfig;
+  autoStart?: AutoStartConfig;
 }
 
 export interface MinecraftServerStatus {
@@ -40,6 +51,10 @@ export interface MinecraftServerStatus {
   playerCount?: number;
   maxPlayers?: number;
   version?: string;
+  lastPlayerActivity?: string;
+  autoStoppedAt?: string;
+  autoStop?: AutoStopConfig;
+  autoStart?: AutoStartConfig;
 }
 
 export interface MinecraftServer {
@@ -58,6 +73,8 @@ export interface MinecraftServer {
     playerCount?: number;
     maxPlayers?: number;
     version?: string;
+    lastPlayerActivity?: string;
+    autoStoppedAt?: string;
   };
 }
 
@@ -391,6 +408,92 @@ export class K8sClient {
     }
   }
 
+  // Configure auto-stop settings
+  async configureAutoStop(name: string, config: AutoStopConfig): Promise<MinecraftServerStatus> {
+    this.ensureAvailable();
+    try {
+      // Get existing resource
+      const existing = await this.customApi!.getNamespacedCustomObject({
+        group: this.group,
+        version: this.version,
+        namespace: this.namespace,
+        plural: this.plural,
+        name,
+      });
+
+      const server = existing as unknown as MinecraftServer;
+
+      // Validate idle timeout if provided
+      if (config.idleTimeoutMinutes !== undefined) {
+        if (config.idleTimeoutMinutes < 1 || config.idleTimeoutMinutes > 1440) {
+          throw new Error('idleTimeoutMinutes must be between 1 and 1440 minutes');
+        }
+      }
+
+      // Update autoStop config
+      server.spec.autoStop = {
+        enabled: config.enabled,
+        idleTimeoutMinutes: config.idleTimeoutMinutes || 3,
+      };
+
+      // Update the CRD
+      const response = await this.customApi!.replaceNamespacedCustomObject({
+        group: this.group,
+        version: this.version,
+        namespace: this.namespace,
+        plural: this.plural,
+        name,
+        body: server,
+      });
+
+      return this.parseServerStatus(response as unknown as MinecraftServer);
+    } catch (error: any) {
+      if (error.response?.statusCode === 404) {
+        throw new Error(`Server '${name}' not found`);
+      }
+      throw error;
+    }
+  }
+
+  // Configure auto-start settings
+  async configureAutoStart(name: string, config: AutoStartConfig): Promise<MinecraftServerStatus> {
+    this.ensureAvailable();
+    try {
+      // Get existing resource
+      const existing = await this.customApi!.getNamespacedCustomObject({
+        group: this.group,
+        version: this.version,
+        namespace: this.namespace,
+        plural: this.plural,
+        name,
+      });
+
+      const server = existing as unknown as MinecraftServer;
+
+      // Update autoStart config
+      server.spec.autoStart = {
+        enabled: config.enabled,
+      };
+
+      // Update the CRD
+      const response = await this.customApi!.replaceNamespacedCustomObject({
+        group: this.group,
+        version: this.version,
+        namespace: this.namespace,
+        plural: this.plural,
+        name,
+        body: server,
+      });
+
+      return this.parseServerStatus(response as unknown as MinecraftServer);
+    } catch (error: any) {
+      if (error.response?.statusCode === 404) {
+        throw new Error(`Server '${name}' not found`);
+      }
+      throw error;
+    }
+  }
+
   // Watch for server changes
   async watchMinecraftServers(
     callback: (type: string, server: MinecraftServerStatus) => void
@@ -632,6 +735,10 @@ export class K8sClient {
       playerCount: server.status?.playerCount || 0,
       maxPlayers: server.status?.maxPlayers || server.spec.config.maxPlayers,
       version: server.status?.version || server.spec.version,
+      lastPlayerActivity: server.status?.lastPlayerActivity,
+      autoStoppedAt: server.status?.autoStoppedAt,
+      autoStop: server.spec.autoStop,
+      autoStart: server.spec.autoStart,
     };
   }
 
