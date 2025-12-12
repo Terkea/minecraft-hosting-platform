@@ -321,6 +321,62 @@ func (r *MinecraftServerReconciler) reconcileStatefulSet(ctx context.Context, se
 func (r *MinecraftServerReconciler) buildPodSpec(server *minecraftv1.MinecraftServer) corev1.PodSpec {
 	// The itzg/minecraft-server image uses environment variables for configuration
 	// instead of mounting config files (which would be read-only)
+
+	// Build environment variables list
+	envVars := []corev1.EnvVar{
+		// Basic server settings
+		{Name: "EULA", Value: "TRUE"},
+		{Name: "TYPE", Value: server.Spec.ServerType},
+		{Name: "VERSION", Value: server.Spec.Version},
+		{Name: "MEMORY", Value: server.Spec.Resources.Memory},
+
+		// Player settings
+		{Name: "MAX_PLAYERS", Value: fmt.Sprintf("%d", server.Spec.Config.MaxPlayers)},
+		{Name: "DIFFICULTY", Value: server.Spec.Config.Difficulty},
+		{Name: "MODE", Value: server.Spec.Config.Gamemode},
+		{Name: "FORCE_GAMEMODE", Value: fmt.Sprintf("%t", server.Spec.Config.ForceGamemode)},
+		{Name: "HARDCORE", Value: fmt.Sprintf("%t", server.Spec.Config.HardcoreMode)},
+
+		// World settings
+		{Name: "LEVEL", Value: server.Spec.Config.LevelName},
+		{Name: "LEVEL_TYPE", Value: server.Spec.Config.LevelType},
+		{Name: "SPAWN_PROTECTION", Value: fmt.Sprintf("%d", server.Spec.Config.SpawnProtection)},
+		{Name: "VIEW_DISTANCE", Value: fmt.Sprintf("%d", server.Spec.Config.ViewDistance)},
+		{Name: "SIMULATION_DISTANCE", Value: fmt.Sprintf("%d", server.Spec.Config.SimulationDistance)},
+		{Name: "GENERATE_STRUCTURES", Value: fmt.Sprintf("%t", server.Spec.Config.GenerateStructures)},
+		{Name: "ALLOW_NETHER", Value: fmt.Sprintf("%t", server.Spec.Config.AllowNether)},
+
+		// Server display
+		{Name: "MOTD", Value: server.Spec.Config.MOTD},
+
+		// Gameplay settings
+		{Name: "PVP", Value: fmt.Sprintf("%t", server.Spec.Config.PVP)},
+		{Name: "ALLOW_FLIGHT", Value: fmt.Sprintf("%t", server.Spec.Config.AllowFlight)},
+		{Name: "ENABLE_COMMAND_BLOCK", Value: fmt.Sprintf("%t", server.Spec.Config.EnableCommandBlock)},
+
+		// Mob spawning
+		{Name: "SPAWN_ANIMALS", Value: fmt.Sprintf("%t", server.Spec.Config.SpawnAnimals)},
+		{Name: "SPAWN_MONSTERS", Value: fmt.Sprintf("%t", server.Spec.Config.SpawnMonsters)},
+		{Name: "SPAWN_NPCS", Value: fmt.Sprintf("%t", server.Spec.Config.SpawnNPCs)},
+
+		// Security settings
+		{Name: "ONLINE_MODE", Value: fmt.Sprintf("%t", server.Spec.Config.OnlineMode)},
+		{Name: "ENFORCE_WHITELIST", Value: fmt.Sprintf("%t", server.Spec.Config.WhiteList)},
+
+		// RCON configuration for remote console access
+		{Name: "ENABLE_RCON", Value: "true"},
+		{Name: "RCON_PASSWORD", Value: getRconPassword()},
+		{Name: "RCON_PORT", Value: "25575"},
+	}
+
+	// Add seed if specified (empty seed = random generation)
+	if server.Spec.Config.LevelSeed != "" {
+		envVars = append(envVars, corev1.EnvVar{
+			Name:  "SEED",
+			Value: server.Spec.Config.LevelSeed,
+		})
+	}
+
 	return corev1.PodSpec{
 		Containers: []corev1.Container{
 			{
@@ -336,73 +392,7 @@ func (r *MinecraftServerReconciler) buildPodSpec(server *minecraftv1.MinecraftSe
 						Protocol:      corev1.ProtocolTCP,
 					},
 				},
-				Env: []corev1.EnvVar{
-					{
-						Name:  "EULA",
-						Value: "TRUE",
-					},
-					{
-						Name:  "TYPE",
-						Value: "VANILLA",
-					},
-					{
-						Name:  "VERSION",
-						Value: server.Spec.Version,
-					},
-					{
-						Name:  "MEMORY",
-						Value: server.Spec.Resources.Memory,
-					},
-					{
-						Name:  "MAX_PLAYERS",
-						Value: fmt.Sprintf("%d", server.Spec.Config.MaxPlayers),
-					},
-					{
-						Name:  "DIFFICULTY",
-						Value: server.Spec.Config.Difficulty,
-					},
-					{
-						Name:  "MODE",
-						Value: server.Spec.Config.Gamemode,
-					},
-					{
-						Name:  "LEVEL",
-						Value: server.Spec.Config.LevelName,
-					},
-					{
-						Name:  "MOTD",
-						Value: server.Spec.Config.MOTD,
-					},
-					{
-						Name:  "PVP",
-						Value: fmt.Sprintf("%t", server.Spec.Config.PVP),
-					},
-					{
-						Name:  "ONLINE_MODE",
-						Value: fmt.Sprintf("%t", server.Spec.Config.OnlineMode),
-					},
-					{
-						Name:  "ENABLE_COMMAND_BLOCK",
-						Value: fmt.Sprintf("%t", server.Spec.Config.EnableCommandBlock),
-					},
-					{
-						Name:  "ENFORCE_WHITELIST",
-						Value: fmt.Sprintf("%t", server.Spec.Config.WhiteList),
-					},
-					// RCON configuration for remote console access
-					{
-						Name:  "ENABLE_RCON",
-						Value: "true",
-					},
-					{
-						Name:  "RCON_PASSWORD",
-						Value: getRconPassword(),
-					},
-					{
-						Name:  "RCON_PORT",
-						Value: "25575",
-					},
-				},
+				Env: envVars,
 				Resources: corev1.ResourceRequirements{
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU:    server.Spec.Resources.CPURequest,
@@ -477,11 +467,23 @@ max-players=%d
 gamemode=%s
 difficulty=%s
 level-name=%s
+level-type=%s
 motd=%s
 white-list=%t
 online-mode=%t
 pvp=%t
 enable-command-block=%t
+spawn-protection=%d
+view-distance=%d
+simulation-distance=%d
+allow-flight=%t
+allow-nether=%t
+spawn-animals=%t
+spawn-monsters=%t
+spawn-npcs=%t
+generate-structures=%t
+hardcore=%t
+force-gamemode=%t
 op-permission-level=4
 player-idle-timeout=0
 max-world-size=29999984
@@ -490,12 +492,29 @@ max-world-size=29999984
 		server.Spec.Config.Gamemode,
 		server.Spec.Config.Difficulty,
 		server.Spec.Config.LevelName,
+		server.Spec.Config.LevelType,
 		server.Spec.Config.MOTD,
 		server.Spec.Config.WhiteList,
 		server.Spec.Config.OnlineMode,
 		server.Spec.Config.PVP,
 		server.Spec.Config.EnableCommandBlock,
+		server.Spec.Config.SpawnProtection,
+		server.Spec.Config.ViewDistance,
+		server.Spec.Config.SimulationDistance,
+		server.Spec.Config.AllowFlight,
+		server.Spec.Config.AllowNether,
+		server.Spec.Config.SpawnAnimals,
+		server.Spec.Config.SpawnMonsters,
+		server.Spec.Config.SpawnNPCs,
+		server.Spec.Config.GenerateStructures,
+		server.Spec.Config.HardcoreMode,
+		server.Spec.Config.ForceGamemode,
 	)
+
+	// Add seed if specified
+	if server.Spec.Config.LevelSeed != "" {
+		properties += fmt.Sprintf("level-seed=%s\n", server.Spec.Config.LevelSeed)
+	}
 
 	return properties
 }

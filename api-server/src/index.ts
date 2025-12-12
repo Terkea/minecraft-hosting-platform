@@ -89,20 +89,64 @@ app.get('/api/v1/servers', async (_req: Request, res: Response) => {
   }
 });
 
+// Server types supported
+type ServerType =
+  | 'VANILLA'
+  | 'PAPER'
+  | 'SPIGOT'
+  | 'BUKKIT'
+  | 'FORGE'
+  | 'FABRIC'
+  | 'PURPUR'
+  | 'QUILT'
+  | 'NEOFORGE';
+
 // Create a new server
 interface CreateServerBody {
   name: string;
+  serverType?: ServerType;
   version?: string;
+  memory?: string;
+
+  // Config options (all optional with defaults)
   maxPlayers?: number;
   gamemode?: string;
   difficulty?: string;
   motd?: string;
-  memory?: string;
+
+  // World settings
+  levelName?: string;
+  levelSeed?: string;
+  levelType?: 'default' | 'flat' | 'largeBiomes' | 'amplified' | 'singleBiome';
+  spawnProtection?: number;
+  viewDistance?: number;
+  simulationDistance?: number;
+
+  // Gameplay settings
+  pvp?: boolean;
+  allowFlight?: boolean;
+  enableCommandBlock?: boolean;
+  forceGamemode?: boolean;
+  hardcoreMode?: boolean;
+
+  // Mob spawning
+  spawnAnimals?: boolean;
+  spawnMonsters?: boolean;
+  spawnNpcs?: boolean;
+
+  // World generation
+  generateStructures?: boolean;
+  allowNether?: boolean;
+
+  // Security settings
+  whiteList?: boolean;
+  onlineMode?: boolean;
 }
 
 app.post('/api/v1/servers', async (req: Request<{}, {}, CreateServerBody>, res: Response) => {
   try {
-    const { name, version, maxPlayers, gamemode, difficulty, motd, memory } = req.body;
+    const body = req.body;
+    const { name, serverType, version, memory } = body;
 
     if (!name) {
       return res.status(400).json({
@@ -111,19 +155,47 @@ app.post('/api/v1/servers', async (req: Request<{}, {}, CreateServerBody>, res: 
       });
     }
 
+    // Build config from request body with defaults
+    const config: Partial<MinecraftServerSpec['config']> = {};
+
+    // Player settings
+    if (body.maxPlayers !== undefined) config.maxPlayers = body.maxPlayers;
+    if (body.gamemode !== undefined) config.gamemode = body.gamemode;
+    if (body.difficulty !== undefined) config.difficulty = body.difficulty;
+    if (body.forceGamemode !== undefined) config.forceGamemode = body.forceGamemode;
+    if (body.hardcoreMode !== undefined) config.hardcoreMode = body.hardcoreMode;
+
+    // World settings
+    if (body.levelName !== undefined) config.levelName = body.levelName;
+    if (body.levelSeed !== undefined) config.levelSeed = body.levelSeed;
+    if (body.levelType !== undefined) config.levelType = body.levelType;
+    if (body.spawnProtection !== undefined) config.spawnProtection = body.spawnProtection;
+    if (body.viewDistance !== undefined) config.viewDistance = body.viewDistance;
+    if (body.simulationDistance !== undefined) config.simulationDistance = body.simulationDistance;
+    if (body.generateStructures !== undefined) config.generateStructures = body.generateStructures;
+    if (body.allowNether !== undefined) config.allowNether = body.allowNether;
+
+    // Server display
+    if (body.motd !== undefined) config.motd = body.motd;
+
+    // Gameplay settings
+    if (body.pvp !== undefined) config.pvp = body.pvp;
+    if (body.allowFlight !== undefined) config.allowFlight = body.allowFlight;
+    if (body.enableCommandBlock !== undefined) config.enableCommandBlock = body.enableCommandBlock;
+
+    // Mob spawning
+    if (body.spawnAnimals !== undefined) config.spawnAnimals = body.spawnAnimals;
+    if (body.spawnMonsters !== undefined) config.spawnMonsters = body.spawnMonsters;
+    if (body.spawnNpcs !== undefined) config.spawnNpcs = body.spawnNpcs;
+
+    // Security settings
+    if (body.whiteList !== undefined) config.whiteList = body.whiteList;
+    if (body.onlineMode !== undefined) config.onlineMode = body.onlineMode;
+
     const spec: Partial<MinecraftServerSpec> = {
+      serverType: serverType || 'VANILLA',
       version: version || 'LATEST',
-      config: {
-        maxPlayers: maxPlayers || 20,
-        gamemode: gamemode || 'survival',
-        difficulty: difficulty || 'normal',
-        levelName: 'world',
-        motd: motd || 'A Minecraft Server',
-        whiteList: false,
-        onlineMode: false,
-        pvp: true,
-        enableCommandBlock: true,
-      },
+      config: config as MinecraftServerSpec['config'],
       resources: {
         cpuRequest: '500m',
         cpuLimit: '2000m',
@@ -234,11 +306,42 @@ app.get('/api/v1/servers/:name/logs', async (req: Request, res: Response) => {
 
 // Update server configuration
 interface UpdateServerBody {
+  serverType?: ServerType;
   version?: string;
+
+  // Config options (all optional)
   maxPlayers?: number;
   gamemode?: string;
   difficulty?: string;
   motd?: string;
+
+  // World settings
+  levelName?: string;
+  levelSeed?: string;
+  levelType?: 'default' | 'flat' | 'largeBiomes' | 'amplified' | 'singleBiome';
+  spawnProtection?: number;
+  viewDistance?: number;
+  simulationDistance?: number;
+
+  // Gameplay settings
+  pvp?: boolean;
+  allowFlight?: boolean;
+  enableCommandBlock?: boolean;
+  forceGamemode?: boolean;
+  hardcoreMode?: boolean;
+
+  // Mob spawning
+  spawnAnimals?: boolean;
+  spawnMonsters?: boolean;
+  spawnNpcs?: boolean;
+
+  // World generation
+  generateStructures?: boolean;
+  allowNether?: boolean;
+
+  // Security settings
+  whiteList?: boolean;
+  onlineMode?: boolean;
 }
 
 app.patch(
@@ -246,20 +349,126 @@ app.patch(
   async (req: Request<{ name: string }, {}, UpdateServerBody>, res: Response) => {
     try {
       const { name } = req.params;
-      const { version, maxPlayers, gamemode, difficulty, motd } = req.body;
+      const body = req.body;
 
       const updates: Partial<MinecraftServerSpec> = {};
 
-      if (version) {
-        updates.version = version;
+      // Update server type if provided
+      if (body.serverType) {
+        updates.serverType = body.serverType;
       }
 
-      if (maxPlayers || gamemode || difficulty || motd) {
-        updates.config = {} as any;
-        if (maxPlayers) updates.config!.maxPlayers = maxPlayers;
-        if (gamemode) updates.config!.gamemode = gamemode;
-        if (difficulty) updates.config!.difficulty = difficulty;
-        if (motd) updates.config!.motd = motd;
+      // Update version if provided
+      if (body.version) {
+        updates.version = body.version;
+      }
+
+      // Build config updates
+      const configUpdates: Partial<MinecraftServerSpec['config']> = {};
+      let hasConfigUpdates = false;
+
+      // Player settings
+      if (body.maxPlayers !== undefined) {
+        configUpdates.maxPlayers = body.maxPlayers;
+        hasConfigUpdates = true;
+      }
+      if (body.gamemode !== undefined) {
+        configUpdates.gamemode = body.gamemode;
+        hasConfigUpdates = true;
+      }
+      if (body.difficulty !== undefined) {
+        configUpdates.difficulty = body.difficulty;
+        hasConfigUpdates = true;
+      }
+      if (body.forceGamemode !== undefined) {
+        configUpdates.forceGamemode = body.forceGamemode;
+        hasConfigUpdates = true;
+      }
+      if (body.hardcoreMode !== undefined) {
+        configUpdates.hardcoreMode = body.hardcoreMode;
+        hasConfigUpdates = true;
+      }
+
+      // World settings
+      if (body.levelName !== undefined) {
+        configUpdates.levelName = body.levelName;
+        hasConfigUpdates = true;
+      }
+      if (body.levelSeed !== undefined) {
+        configUpdates.levelSeed = body.levelSeed;
+        hasConfigUpdates = true;
+      }
+      if (body.levelType !== undefined) {
+        configUpdates.levelType = body.levelType;
+        hasConfigUpdates = true;
+      }
+      if (body.spawnProtection !== undefined) {
+        configUpdates.spawnProtection = body.spawnProtection;
+        hasConfigUpdates = true;
+      }
+      if (body.viewDistance !== undefined) {
+        configUpdates.viewDistance = body.viewDistance;
+        hasConfigUpdates = true;
+      }
+      if (body.simulationDistance !== undefined) {
+        configUpdates.simulationDistance = body.simulationDistance;
+        hasConfigUpdates = true;
+      }
+      if (body.generateStructures !== undefined) {
+        configUpdates.generateStructures = body.generateStructures;
+        hasConfigUpdates = true;
+      }
+      if (body.allowNether !== undefined) {
+        configUpdates.allowNether = body.allowNether;
+        hasConfigUpdates = true;
+      }
+
+      // Server display
+      if (body.motd !== undefined) {
+        configUpdates.motd = body.motd;
+        hasConfigUpdates = true;
+      }
+
+      // Gameplay settings
+      if (body.pvp !== undefined) {
+        configUpdates.pvp = body.pvp;
+        hasConfigUpdates = true;
+      }
+      if (body.allowFlight !== undefined) {
+        configUpdates.allowFlight = body.allowFlight;
+        hasConfigUpdates = true;
+      }
+      if (body.enableCommandBlock !== undefined) {
+        configUpdates.enableCommandBlock = body.enableCommandBlock;
+        hasConfigUpdates = true;
+      }
+
+      // Mob spawning
+      if (body.spawnAnimals !== undefined) {
+        configUpdates.spawnAnimals = body.spawnAnimals;
+        hasConfigUpdates = true;
+      }
+      if (body.spawnMonsters !== undefined) {
+        configUpdates.spawnMonsters = body.spawnMonsters;
+        hasConfigUpdates = true;
+      }
+      if (body.spawnNpcs !== undefined) {
+        configUpdates.spawnNpcs = body.spawnNpcs;
+        hasConfigUpdates = true;
+      }
+
+      // Security settings
+      if (body.whiteList !== undefined) {
+        configUpdates.whiteList = body.whiteList;
+        hasConfigUpdates = true;
+      }
+      if (body.onlineMode !== undefined) {
+        configUpdates.onlineMode = body.onlineMode;
+        hasConfigUpdates = true;
+      }
+
+      if (hasConfigUpdates) {
+        updates.config = configUpdates as MinecraftServerSpec['config'];
       }
 
       const server = await k8sClient.updateMinecraftServer(name, updates);
@@ -1091,6 +1300,414 @@ function parseInventoryItem(itemStr: string): any | null {
     count,
   };
 }
+
+// ==================== PLAYER MANAGEMENT ENDPOINTS ====================
+
+// Get whitelist
+app.get('/api/v1/servers/:name/whitelist', async (req: Request, res: Response) => {
+  try {
+    const { name } = req.params;
+    const result = await k8sClient.executeCommand(name, 'whitelist list');
+
+    // Parse "There are X whitelisted players: player1, player2" or "There are no whitelisted players"
+    const match = result.match(/There are (\d+) whitelisted players?:\s*(.*)/i);
+    const noPlayersMatch = result.match(/There are no whitelisted players/i);
+
+    let players: string[] = [];
+    if (match && match[2]) {
+      players = match[2]
+        .split(',')
+        .map((p) => p.trim())
+        .filter((p) => p);
+    }
+
+    res.json({
+      enabled: true, // whitelist list only works if whitelist is queryable
+      count: players.length,
+      players,
+    });
+  } catch (error: any) {
+    console.error('Failed to get whitelist:', error);
+    res.status(500).json({
+      error: 'whitelist_failed',
+      message: error.message,
+    });
+  }
+});
+
+// Add player to whitelist
+interface WhitelistAddBody {
+  player: string;
+}
+
+app.post(
+  '/api/v1/servers/:name/whitelist',
+  async (req: Request<{ name: string }, {}, WhitelistAddBody>, res: Response) => {
+    try {
+      const { name } = req.params;
+      const { player } = req.body;
+
+      if (!player) {
+        return res.status(400).json({
+          error: 'invalid_request',
+          message: 'Player name is required',
+        });
+      }
+
+      const result = await k8sClient.executeCommand(name, `whitelist add ${player}`);
+
+      res.json({
+        message: `Player '${player}' added to whitelist`,
+        result,
+      });
+    } catch (error: any) {
+      console.error('Failed to add to whitelist:', error);
+      res.status(500).json({
+        error: 'whitelist_add_failed',
+        message: error.message,
+      });
+    }
+  }
+);
+
+// Remove player from whitelist
+app.delete('/api/v1/servers/:name/whitelist/:player', async (req: Request, res: Response) => {
+  try {
+    const { name, player } = req.params;
+    const result = await k8sClient.executeCommand(name, `whitelist remove ${player}`);
+
+    res.json({
+      message: `Player '${player}' removed from whitelist`,
+      result,
+    });
+  } catch (error: any) {
+    console.error('Failed to remove from whitelist:', error);
+    res.status(500).json({
+      error: 'whitelist_remove_failed',
+      message: error.message,
+    });
+  }
+});
+
+// Toggle whitelist on/off
+interface WhitelistToggleBody {
+  enabled: boolean;
+}
+
+app.put(
+  '/api/v1/servers/:name/whitelist/toggle',
+  async (req: Request<{ name: string }, {}, WhitelistToggleBody>, res: Response) => {
+    try {
+      const { name } = req.params;
+      const { enabled } = req.body;
+
+      const command = enabled ? 'whitelist on' : 'whitelist off';
+      const result = await k8sClient.executeCommand(name, command);
+
+      res.json({
+        message: `Whitelist ${enabled ? 'enabled' : 'disabled'}`,
+        enabled,
+        result,
+      });
+    } catch (error: any) {
+      console.error('Failed to toggle whitelist:', error);
+      res.status(500).json({
+        error: 'whitelist_toggle_failed',
+        message: error.message,
+      });
+    }
+  }
+);
+
+// Get ops list
+app.get('/api/v1/servers/:name/ops', async (req: Request, res: Response) => {
+  try {
+    const { name } = req.params;
+    // Note: Minecraft doesn't have a direct "op list" command, we need to use /list with parse
+    // However, we can check if players are opped by trying to get their op level
+    // For now, we'll return empty and let frontend manage from create config
+
+    res.json({
+      count: 0,
+      players: [],
+      message:
+        'Use server configuration to manage initial ops. Live ops can be checked per-player.',
+    });
+  } catch (error: any) {
+    console.error('Failed to get ops:', error);
+    res.status(500).json({
+      error: 'ops_failed',
+      message: error.message,
+    });
+  }
+});
+
+// Grant operator status
+interface OpAddBody {
+  player: string;
+}
+
+app.post(
+  '/api/v1/servers/:name/ops',
+  async (req: Request<{ name: string }, {}, OpAddBody>, res: Response) => {
+    try {
+      const { name } = req.params;
+      const { player } = req.body;
+
+      if (!player) {
+        return res.status(400).json({
+          error: 'invalid_request',
+          message: 'Player name is required',
+        });
+      }
+
+      const result = await k8sClient.executeCommand(name, `op ${player}`);
+
+      res.json({
+        message: `Operator status granted to '${player}'`,
+        result,
+      });
+    } catch (error: any) {
+      console.error('Failed to grant op:', error);
+      res.status(500).json({
+        error: 'op_failed',
+        message: error.message,
+      });
+    }
+  }
+);
+
+// Revoke operator status
+app.delete('/api/v1/servers/:name/ops/:player', async (req: Request, res: Response) => {
+  try {
+    const { name, player } = req.params;
+    const result = await k8sClient.executeCommand(name, `deop ${player}`);
+
+    res.json({
+      message: `Operator status revoked from '${player}'`,
+      result,
+    });
+  } catch (error: any) {
+    console.error('Failed to revoke op:', error);
+    res.status(500).json({
+      error: 'deop_failed',
+      message: error.message,
+    });
+  }
+});
+
+// Get ban list
+app.get('/api/v1/servers/:name/bans', async (req: Request, res: Response) => {
+  try {
+    const { name } = req.params;
+    const result = await k8sClient.executeCommand(name, 'banlist players');
+
+    // Parse "There are X ban(s):" followed by list or "There are no bans"
+    const match = result.match(/There are (\d+) ban\(s\):\s*(.*)/is);
+    const noBansMatch = result.match(/There are no bans/i);
+
+    let players: string[] = [];
+    if (match && match[2]) {
+      // Each ban entry is typically "playername was banned by source: reason"
+      // or just "playername" in simpler formats
+      const entries = match[2].split('\n').filter((e) => e.trim());
+      players = entries
+        .map((entry) => {
+          const nameMatch = entry.match(/^([^\s]+)/);
+          return nameMatch ? nameMatch[1] : entry.trim();
+        })
+        .filter((p) => p);
+    }
+
+    res.json({
+      count: players.length,
+      players,
+    });
+  } catch (error: any) {
+    console.error('Failed to get bans:', error);
+    res.status(500).json({
+      error: 'bans_failed',
+      message: error.message,
+    });
+  }
+});
+
+// Ban a player
+interface BanAddBody {
+  player: string;
+  reason?: string;
+}
+
+app.post(
+  '/api/v1/servers/:name/bans',
+  async (req: Request<{ name: string }, {}, BanAddBody>, res: Response) => {
+    try {
+      const { name } = req.params;
+      const { player, reason } = req.body;
+
+      if (!player) {
+        return res.status(400).json({
+          error: 'invalid_request',
+          message: 'Player name is required',
+        });
+      }
+
+      const command = reason ? `ban ${player} ${reason}` : `ban ${player}`;
+      const result = await k8sClient.executeCommand(name, command);
+
+      res.json({
+        message: `Player '${player}' has been banned`,
+        result,
+      });
+    } catch (error: any) {
+      console.error('Failed to ban player:', error);
+      res.status(500).json({
+        error: 'ban_failed',
+        message: error.message,
+      });
+    }
+  }
+);
+
+// Unban a player (pardon)
+app.delete('/api/v1/servers/:name/bans/:player', async (req: Request, res: Response) => {
+  try {
+    const { name, player } = req.params;
+    const result = await k8sClient.executeCommand(name, `pardon ${player}`);
+
+    res.json({
+      message: `Player '${player}' has been unbanned`,
+      result,
+    });
+  } catch (error: any) {
+    console.error('Failed to unban player:', error);
+    res.status(500).json({
+      error: 'unban_failed',
+      message: error.message,
+    });
+  }
+});
+
+// Kick a player
+interface KickBody {
+  player: string;
+  reason?: string;
+}
+
+app.post(
+  '/api/v1/servers/:name/kick',
+  async (req: Request<{ name: string }, {}, KickBody>, res: Response) => {
+    try {
+      const { name } = req.params;
+      const { player, reason } = req.body;
+
+      if (!player) {
+        return res.status(400).json({
+          error: 'invalid_request',
+          message: 'Player name is required',
+        });
+      }
+
+      const command = reason ? `kick ${player} ${reason}` : `kick ${player}`;
+      const result = await k8sClient.executeCommand(name, command);
+
+      res.json({
+        message: `Player '${player}' has been kicked`,
+        result,
+      });
+    } catch (error: any) {
+      console.error('Failed to kick player:', error);
+      res.status(500).json({
+        error: 'kick_failed',
+        message: error.message,
+      });
+    }
+  }
+);
+
+// Get IP ban list
+app.get('/api/v1/servers/:name/bans/ips', async (req: Request, res: Response) => {
+  try {
+    const { name } = req.params;
+    const result = await k8sClient.executeCommand(name, 'banlist ips');
+
+    // Parse similar to player bans
+    const match = result.match(/There are (\d+) ban\(s\):\s*(.*)/is);
+
+    let ips: string[] = [];
+    if (match && match[2]) {
+      const entries = match[2].split('\n').filter((e) => e.trim());
+      ips = entries.map((entry) => entry.trim().split(' ')[0]).filter((ip) => ip);
+    }
+
+    res.json({
+      count: ips.length,
+      ips,
+    });
+  } catch (error: any) {
+    console.error('Failed to get IP bans:', error);
+    res.status(500).json({
+      error: 'ip_bans_failed',
+      message: error.message,
+    });
+  }
+});
+
+// Ban an IP
+interface BanIpBody {
+  ip: string;
+  reason?: string;
+}
+
+app.post(
+  '/api/v1/servers/:name/bans/ips',
+  async (req: Request<{ name: string }, {}, BanIpBody>, res: Response) => {
+    try {
+      const { name } = req.params;
+      const { ip, reason } = req.body;
+
+      if (!ip) {
+        return res.status(400).json({
+          error: 'invalid_request',
+          message: 'IP address is required',
+        });
+      }
+
+      const command = reason ? `ban-ip ${ip} ${reason}` : `ban-ip ${ip}`;
+      const result = await k8sClient.executeCommand(name, command);
+
+      res.json({
+        message: `IP '${ip}' has been banned`,
+        result,
+      });
+    } catch (error: any) {
+      console.error('Failed to ban IP:', error);
+      res.status(500).json({
+        error: 'ban_ip_failed',
+        message: error.message,
+      });
+    }
+  }
+);
+
+// Unban an IP
+app.delete('/api/v1/servers/:name/bans/ips/:ip', async (req: Request, res: Response) => {
+  try {
+    const { name, ip } = req.params;
+    const result = await k8sClient.executeCommand(name, `pardon-ip ${ip}`);
+
+    res.json({
+      message: `IP '${ip}' has been unbanned`,
+      result,
+    });
+  } catch (error: any) {
+    console.error('Failed to unban IP:', error);
+    res.status(500).json({
+      error: 'unban_ip_failed',
+      message: error.message,
+    });
+  }
+});
 
 // Execute console command (RCON)
 interface ExecuteCommandBody {

@@ -15,11 +15,30 @@ import {
   Flame,
   CircleDot,
   Cookie,
+  Gamepad2,
+  Crown,
+  Ban,
+  LogOut,
+  Wand2,
 } from 'lucide-react';
-import type { PlayerData, MinecraftItem, EquipmentItem } from './api';
+import { notification } from 'antd';
+import {
+  setPlayerGamemode,
+  healPlayer,
+  feedPlayer,
+  clearPlayerEffects,
+  kickPlayer,
+  banPlayer,
+  grantOp,
+  revokeOp,
+  type PlayerData,
+  type MinecraftItem,
+  type EquipmentItem,
+} from './api';
 
 interface PlayerViewProps {
   player: PlayerData;
+  serverName: string;
   onBack: () => void;
   onRefresh: () => void;
   isLoading: boolean;
@@ -319,12 +338,150 @@ const XPBar = ({ level, total }: { level: number; total: number }) => {
   );
 };
 
-export function PlayerView({ player, onBack, onRefresh, isLoading }: PlayerViewProps) {
+const GAMEMODES = [
+  { value: 'survival', label: 'Survival', color: 'green' },
+  { value: 'creative', label: 'Creative', color: 'yellow' },
+  { value: 'adventure', label: 'Adventure', color: 'blue' },
+  { value: 'spectator', label: 'Spectator', color: 'purple' },
+];
+
+export function PlayerView({ player, serverName, onBack, onRefresh, isLoading }: PlayerViewProps) {
   const [showEnderChest, setShowEnderChest] = useState(false);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+
+  // Configure notification
+  const [api, contextHolder] = notification.useNotification();
 
   // Organize inventory into slots (0-8 hotbar, 9-35 main inventory)
   const getItemAtSlot = (inventory: MinecraftItem[], slot: number): MinecraftItem | undefined => {
     return inventory.find((item) => item.slot === slot);
+  };
+
+  const showSuccess = (title: string, description?: string) => {
+    api.success({
+      message: title,
+      description,
+      placement: 'topRight',
+      duration: 3,
+    });
+  };
+
+  const showError = (title: string, description?: string) => {
+    api.error({
+      message: title,
+      description,
+      placement: 'topRight',
+      duration: 5,
+    });
+  };
+
+  const handleGamemodeChange = async (gamemode: string) => {
+    setActionLoading(`gamemode-${gamemode}`);
+    try {
+      await setPlayerGamemode(serverName, player.name, gamemode);
+      showSuccess('Gamemode Changed', `${player.name} is now in ${gamemode} mode`);
+      onRefresh();
+    } catch (err: any) {
+      showError('Gamemode Change Failed', err.message);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleHeal = async () => {
+    setActionLoading('heal');
+    try {
+      await healPlayer(serverName, player.name);
+      showSuccess('Player Healed', `${player.name} has been healed`);
+      onRefresh();
+    } catch (err: any) {
+      showError('Heal Failed', err.message);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleFeed = async () => {
+    setActionLoading('feed');
+    try {
+      await feedPlayer(serverName, player.name);
+      showSuccess('Player Fed', `${player.name} has been fed`);
+      onRefresh();
+    } catch (err: any) {
+      showError('Feed Failed', err.message);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleClearEffects = async () => {
+    setActionLoading('clear-effects');
+    try {
+      await clearPlayerEffects(serverName, player.name);
+      showSuccess('Effects Cleared', `All effects removed from ${player.name}`);
+      onRefresh();
+    } catch (err: any) {
+      showError('Clear Effects Failed', err.message);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleKick = async () => {
+    if (!confirm(`Are you sure you want to kick ${player.name}?`)) return;
+    setActionLoading('kick');
+    try {
+      await kickPlayer(serverName, player.name);
+      showSuccess(`Kicked ${player.name}`);
+      onBack();
+    } catch (err: any) {
+      showError(err.message);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleBan = async () => {
+    if (
+      !confirm(
+        `Are you sure you want to ban ${player.name}? This will permanently ban them from the server.`
+      )
+    )
+      return;
+    setActionLoading('ban');
+    try {
+      await banPlayer(serverName, player.name);
+      showSuccess(`Banned ${player.name}`);
+      onBack();
+    } catch (err: any) {
+      showError(err.message);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleGrantOp = async () => {
+    setActionLoading('op');
+    try {
+      await grantOp(serverName, player.name);
+      showSuccess(`Granted operator to ${player.name}`);
+    } catch (err: any) {
+      showError(err.message);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleRevokeOp = async () => {
+    setActionLoading('deop');
+    try {
+      await revokeOp(serverName, player.name);
+      showSuccess(`Revoked operator from ${player.name}`);
+    } catch (err: any) {
+      showError(err.message);
+    } finally {
+      setActionLoading(null);
+    }
   };
 
   return (
@@ -346,6 +503,8 @@ export function PlayerView({ player, onBack, onRefresh, isLoading }: PlayerViewP
           <RefreshCw className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} />
         </button>
       </div>
+
+      {contextHolder}
 
       {/* Player Profile Header */}
       <div className="bg-gray-800/50 backdrop-blur border border-gray-700 rounded-xl p-6">
@@ -492,6 +651,162 @@ export function PlayerView({ player, onBack, onRefresh, isLoading }: PlayerViewP
                   <Zap className="w-3 h-3" /> Instabuild
                 </span>
               )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Player Actions */}
+      <div className="bg-gray-800/50 backdrop-blur border border-gray-700 rounded-xl p-6">
+        <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+          <Wand2 className="w-5 h-5 text-purple-400" />
+          Player Actions
+        </h3>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {/* Gamemode */}
+          <div>
+            <h4 className="text-sm font-medium text-gray-400 mb-2 flex items-center gap-2">
+              <Gamepad2 className="w-4 h-4" />
+              Change Gamemode
+            </h4>
+            <div className="grid grid-cols-2 gap-2">
+              {GAMEMODES.map(({ value, label, color }) => (
+                <button
+                  key={value}
+                  onClick={() => handleGamemodeChange(value)}
+                  disabled={actionLoading !== null}
+                  className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    player.gameModeName.toLowerCase() === value
+                      ? `bg-${color}-600 text-white`
+                      : `bg-gray-700 hover:bg-gray-600 text-gray-300`
+                  } ${actionLoading === `gamemode-${value}` ? 'opacity-50' : ''}`}
+                >
+                  {actionLoading === `gamemode-${value}` ? (
+                    <RefreshCw className="w-4 h-4 animate-spin mx-auto" />
+                  ) : (
+                    label
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Quick Actions */}
+          <div>
+            <h4 className="text-sm font-medium text-gray-400 mb-2 flex items-center gap-2">
+              <Zap className="w-4 h-4" />
+              Quick Actions
+            </h4>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={handleHeal}
+                disabled={actionLoading !== null}
+                className="flex items-center justify-center gap-2 px-3 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg text-sm transition-colors"
+              >
+                {actionLoading === 'heal' ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <>
+                    <Heart className="w-4 h-4" />
+                    Heal
+                  </>
+                )}
+              </button>
+              <button
+                onClick={handleFeed}
+                disabled={actionLoading !== null}
+                className="flex items-center justify-center gap-2 px-3 py-2 bg-orange-600/20 hover:bg-orange-600/30 text-orange-400 rounded-lg text-sm transition-colors"
+              >
+                {actionLoading === 'feed' ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <>
+                    <Utensils className="w-4 h-4" />
+                    Feed
+                  </>
+                )}
+              </button>
+              <button
+                onClick={handleClearEffects}
+                disabled={actionLoading !== null}
+                className="col-span-2 flex items-center justify-center gap-2 px-3 py-2 bg-purple-600/20 hover:bg-purple-600/30 text-purple-400 rounded-lg text-sm transition-colors"
+              >
+                {actionLoading === 'clear-effects' ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4" />
+                    Clear Effects
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Moderation */}
+          <div>
+            <h4 className="text-sm font-medium text-gray-400 mb-2 flex items-center gap-2">
+              <Shield className="w-4 h-4" />
+              Moderation
+            </h4>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={handleGrantOp}
+                disabled={actionLoading !== null}
+                className="flex items-center justify-center gap-2 px-3 py-2 bg-yellow-600/20 hover:bg-yellow-600/30 text-yellow-400 rounded-lg text-sm transition-colors"
+              >
+                {actionLoading === 'op' ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <>
+                    <Crown className="w-4 h-4" />
+                    Grant OP
+                  </>
+                )}
+              </button>
+              <button
+                onClick={handleRevokeOp}
+                disabled={actionLoading !== null}
+                className="flex items-center justify-center gap-2 px-3 py-2 bg-gray-600/20 hover:bg-gray-600/30 text-gray-400 rounded-lg text-sm transition-colors"
+              >
+                {actionLoading === 'deop' ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <>
+                    <Crown className="w-4 h-4" />
+                    Revoke OP
+                  </>
+                )}
+              </button>
+              <button
+                onClick={handleKick}
+                disabled={actionLoading !== null}
+                className="flex items-center justify-center gap-2 px-3 py-2 bg-yellow-600/20 hover:bg-yellow-600/30 text-yellow-400 rounded-lg text-sm transition-colors"
+              >
+                {actionLoading === 'kick' ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <>
+                    <LogOut className="w-4 h-4" />
+                    Kick
+                  </>
+                )}
+              </button>
+              <button
+                onClick={handleBan}
+                disabled={actionLoading !== null}
+                className="flex items-center justify-center gap-2 px-3 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg text-sm transition-colors"
+              >
+                {actionLoading === 'ban' ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <>
+                    <Ban className="w-4 h-4" />
+                    Ban
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>

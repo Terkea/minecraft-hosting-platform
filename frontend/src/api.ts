@@ -1,4 +1,4 @@
-import { Server, CreateServerRequest, ApiResponse } from './types';
+import { Server, CreateServerRequest, UpdateServerRequest, ApiResponse } from './types';
 
 const API_BASE = '/api/v1';
 
@@ -205,4 +205,373 @@ export async function getServerPlayers(name: string): Promise<PlayersResponse> {
     throw new Error('Failed to fetch players');
   }
   return response.json();
+}
+
+export async function updateServer(name: string, updates: UpdateServerRequest): Promise<Server> {
+  const response = await fetch(`${API_BASE}/servers/${name}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(updates),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.message || 'Failed to update server');
+  }
+
+  return data.server;
+}
+
+// ==================== Player Management ====================
+
+export interface WhitelistResponse {
+  enabled: boolean;
+  count: number;
+  players: string[];
+}
+
+export async function getWhitelist(serverName: string): Promise<WhitelistResponse> {
+  const response = await fetch(`${API_BASE}/servers/${serverName}/whitelist`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch whitelist');
+  }
+  return response.json();
+}
+
+export async function addToWhitelist(serverName: string, player: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/servers/${serverName}/whitelist`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ player }),
+  });
+
+  if (!response.ok) {
+    const data = await response.json();
+    throw new Error(data.message || 'Failed to add player to whitelist');
+  }
+}
+
+export async function removeFromWhitelist(serverName: string, player: string): Promise<void> {
+  const response = await fetch(
+    `${API_BASE}/servers/${serverName}/whitelist/${encodeURIComponent(player)}`,
+    {
+      method: 'DELETE',
+    }
+  );
+
+  if (!response.ok) {
+    const data = await response.json();
+    throw new Error(data.message || 'Failed to remove player from whitelist');
+  }
+}
+
+export async function toggleWhitelist(serverName: string, enabled: boolean): Promise<void> {
+  const response = await fetch(`${API_BASE}/servers/${serverName}/whitelist/toggle`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled }),
+  });
+
+  if (!response.ok) {
+    const data = await response.json();
+    throw new Error(data.message || 'Failed to toggle whitelist');
+  }
+}
+
+export async function grantOp(serverName: string, player: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/servers/${serverName}/ops`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ player }),
+  });
+
+  if (!response.ok) {
+    const data = await response.json();
+    throw new Error(data.message || 'Failed to grant operator status');
+  }
+}
+
+export async function revokeOp(serverName: string, player: string): Promise<void> {
+  const response = await fetch(
+    `${API_BASE}/servers/${serverName}/ops/${encodeURIComponent(player)}`,
+    {
+      method: 'DELETE',
+    }
+  );
+
+  if (!response.ok) {
+    const data = await response.json();
+    throw new Error(data.message || 'Failed to revoke operator status');
+  }
+}
+
+export interface BanListResponse {
+  count: number;
+  players: string[];
+}
+
+export async function getBanList(serverName: string): Promise<BanListResponse> {
+  const response = await fetch(`${API_BASE}/servers/${serverName}/bans`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch ban list');
+  }
+  return response.json();
+}
+
+export async function banPlayer(
+  serverName: string,
+  player: string,
+  reason?: string
+): Promise<void> {
+  const response = await fetch(`${API_BASE}/servers/${serverName}/bans`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ player, reason }),
+  });
+
+  if (!response.ok) {
+    const data = await response.json();
+    throw new Error(data.message || 'Failed to ban player');
+  }
+}
+
+export async function unbanPlayer(serverName: string, player: string): Promise<void> {
+  const response = await fetch(
+    `${API_BASE}/servers/${serverName}/bans/${encodeURIComponent(player)}`,
+    {
+      method: 'DELETE',
+    }
+  );
+
+  if (!response.ok) {
+    const data = await response.json();
+    throw new Error(data.message || 'Failed to unban player');
+  }
+}
+
+export async function kickPlayer(
+  serverName: string,
+  player: string,
+  reason?: string
+): Promise<void> {
+  const response = await fetch(`${API_BASE}/servers/${serverName}/kick`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ player, reason }),
+  });
+
+  if (!response.ok) {
+    const data = await response.json();
+    throw new Error(data.message || 'Failed to kick player');
+  }
+}
+
+export interface IpBanListResponse {
+  count: number;
+  ips: string[];
+}
+
+export async function getIpBanList(serverName: string): Promise<IpBanListResponse> {
+  const response = await fetch(`${API_BASE}/servers/${serverName}/bans/ips`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch IP ban list');
+  }
+  return response.json();
+}
+
+export async function banIp(serverName: string, ip: string, reason?: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/servers/${serverName}/bans/ips`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ip, reason }),
+  });
+
+  if (!response.ok) {
+    const data = await response.json();
+    throw new Error(data.message || 'Failed to ban IP');
+  }
+}
+
+export async function unbanIp(serverName: string, ip: string): Promise<void> {
+  const response = await fetch(
+    `${API_BASE}/servers/${serverName}/bans/ips/${encodeURIComponent(ip)}`,
+    {
+      method: 'DELETE',
+    }
+  );
+
+  if (!response.ok) {
+    const data = await response.json();
+    throw new Error(data.message || 'Failed to unban IP');
+  }
+}
+
+// ==================== Live Settings (RCON) ====================
+
+export interface CommandResult {
+  command: string;
+  result: string;
+  serverName: string;
+}
+
+export async function setDifficulty(
+  serverName: string,
+  difficulty: string
+): Promise<CommandResult> {
+  return executeCommand(serverName, `difficulty ${difficulty}`).then((result) => ({
+    command: `difficulty ${difficulty}`,
+    result,
+    serverName,
+  }));
+}
+
+export async function setDefaultGamemode(
+  serverName: string,
+  gamemode: string
+): Promise<CommandResult> {
+  return executeCommand(serverName, `defaultgamemode ${gamemode}`).then((result) => ({
+    command: `defaultgamemode ${gamemode}`,
+    result,
+    serverName,
+  }));
+}
+
+export async function setWeather(
+  serverName: string,
+  weather: string,
+  duration?: number
+): Promise<CommandResult> {
+  const cmd = duration ? `weather ${weather} ${duration}` : `weather ${weather}`;
+  return executeCommand(serverName, cmd).then((result) => ({
+    command: cmd,
+    result,
+    serverName,
+  }));
+}
+
+export async function setTime(serverName: string, time: string): Promise<CommandResult> {
+  return executeCommand(serverName, `time set ${time}`).then((result) => ({
+    command: `time set ${time}`,
+    result,
+    serverName,
+  }));
+}
+
+export async function setGamerule(
+  serverName: string,
+  rule: string,
+  value: string | boolean
+): Promise<CommandResult> {
+  const val = typeof value === 'boolean' ? value.toString() : value;
+  return executeCommand(serverName, `gamerule ${rule} ${val}`).then((result) => ({
+    command: `gamerule ${rule} ${val}`,
+    result,
+    serverName,
+  }));
+}
+
+export async function getGamerule(serverName: string, rule: string): Promise<string> {
+  const result = await executeCommand(serverName, `gamerule ${rule}`);
+  // Parse "Gamerule ruleName is currently set to: value"
+  const match = result.match(/is currently set to:\s*(\S+)/i) || result.match(/=\s*(\S+)/);
+  return match ? match[1] : result;
+}
+
+export async function setWorldBorder(
+  serverName: string,
+  size: number,
+  time?: number
+): Promise<CommandResult> {
+  const cmd = time ? `worldborder set ${size} ${time}` : `worldborder set ${size}`;
+  return executeCommand(serverName, cmd).then((result) => ({
+    command: cmd,
+    result,
+    serverName,
+  }));
+}
+
+export async function sayMessage(serverName: string, message: string): Promise<CommandResult> {
+  return executeCommand(serverName, `say ${message}`).then((result) => ({
+    command: `say ${message}`,
+    result,
+    serverName,
+  }));
+}
+
+// Player-specific commands
+export async function setPlayerGamemode(
+  serverName: string,
+  player: string,
+  gamemode: string
+): Promise<CommandResult> {
+  return executeCommand(serverName, `gamemode ${gamemode} ${player}`).then((result) => ({
+    command: `gamemode ${gamemode} ${player}`,
+    result,
+    serverName,
+  }));
+}
+
+export async function teleportPlayer(
+  serverName: string,
+  player: string,
+  x: number,
+  y: number,
+  z: number
+): Promise<CommandResult> {
+  return executeCommand(serverName, `tp ${player} ${x} ${y} ${z}`).then((result) => ({
+    command: `tp ${player} ${x} ${y} ${z}`,
+    result,
+    serverName,
+  }));
+}
+
+export async function givePlayerEffect(
+  serverName: string,
+  player: string,
+  effect: string,
+  duration: number = 30,
+  amplifier: number = 0
+): Promise<CommandResult> {
+  return executeCommand(
+    serverName,
+    `effect give ${player} ${effect} ${duration} ${amplifier}`
+  ).then((result) => ({
+    command: `effect give ${player} ${effect} ${duration} ${amplifier}`,
+    result,
+    serverName,
+  }));
+}
+
+export async function clearPlayerEffects(
+  serverName: string,
+  player: string
+): Promise<CommandResult> {
+  return executeCommand(serverName, `effect clear ${player}`).then((result) => ({
+    command: `effect clear ${player}`,
+    result,
+    serverName,
+  }));
+}
+
+export async function healPlayer(serverName: string, player: string): Promise<CommandResult> {
+  // Give instant health effect at high level to fully heal
+  return executeCommand(serverName, `effect give ${player} instant_health 1 100`).then(
+    (result) => ({
+      command: `effect give ${player} instant_health 1 100`,
+      result,
+      serverName,
+    })
+  );
+}
+
+export async function feedPlayer(serverName: string, player: string): Promise<CommandResult> {
+  // Give saturation effect to fully feed
+  return executeCommand(serverName, `effect give ${player} saturation 1 100`).then((result) => ({
+    command: `effect give ${player} saturation 1 100`,
+    result,
+    serverName,
+  }));
 }

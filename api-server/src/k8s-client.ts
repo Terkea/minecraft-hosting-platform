@@ -12,11 +12,27 @@ export interface AutoStartConfig {
   enabled: boolean;
 }
 
+// Server types supported by itzg/minecraft-server image
+export type ServerType =
+  | 'VANILLA'
+  | 'PAPER'
+  | 'SPIGOT'
+  | 'BUKKIT'
+  | 'FORGE'
+  | 'FABRIC'
+  | 'PURPUR'
+  | 'QUILT'
+  | 'NEOFORGE';
+
+// Level/world types for generation
+export type LevelType = 'default' | 'flat' | 'largeBiomes' | 'amplified' | 'singleBiome';
+
 export interface MinecraftServerSpec {
   serverId: string;
   tenantId: string;
   stopped?: boolean;
   image?: string;
+  serverType?: ServerType;
   version: string;
   resources: {
     cpuRequest: string;
@@ -27,15 +43,39 @@ export interface MinecraftServerSpec {
     storage: string;
   };
   config: {
+    // Player settings
     maxPlayers: number;
     gamemode: string;
     difficulty: string;
+    forceGamemode?: boolean;
+    hardcoreMode?: boolean;
+
+    // World settings
     levelName: string;
+    levelSeed?: string;
+    levelType?: LevelType;
+    spawnProtection?: number;
+    viewDistance?: number;
+    simulationDistance?: number;
+    generateStructures?: boolean;
+    allowNether?: boolean;
+
+    // Server display
     motd: string;
+
+    // Gameplay settings
+    pvp: boolean;
+    allowFlight?: boolean;
+    enableCommandBlock: boolean;
+
+    // Mob spawning
+    spawnAnimals?: boolean;
+    spawnMonsters?: boolean;
+    spawnNpcs?: boolean;
+
+    // Security settings
     whiteList: boolean;
     onlineMode: boolean;
-    pvp: boolean;
-    enableCommandBlock: boolean;
   };
   autoStop?: AutoStopConfig;
   autoStart?: AutoStartConfig;
@@ -51,10 +91,12 @@ export interface MinecraftServerStatus {
   playerCount?: number;
   maxPlayers?: number;
   version?: string;
+  serverType?: ServerType;
   lastPlayerActivity?: string;
   autoStoppedAt?: string;
   autoStop?: AutoStopConfig;
   autoStart?: AutoStartConfig;
+  config?: MinecraftServerSpec['config'];
 }
 
 export interface MinecraftServer {
@@ -139,10 +181,49 @@ export class K8sClient {
     spec: Partial<MinecraftServerSpec>
   ): Promise<MinecraftServerStatus> {
     this.ensureAvailable();
+
+    // Default config with all fields
+    const defaultConfig: MinecraftServerSpec['config'] = {
+      // Player settings
+      maxPlayers: 20,
+      gamemode: 'survival',
+      difficulty: 'normal',
+      forceGamemode: false,
+      hardcoreMode: false,
+
+      // World settings
+      levelName: 'world',
+      levelSeed: '',
+      levelType: 'default',
+      spawnProtection: 16,
+      viewDistance: 10,
+      simulationDistance: 10,
+      generateStructures: true,
+      allowNether: true,
+
+      // Server display
+      motd: 'A Minecraft Server',
+
+      // Gameplay settings
+      pvp: true,
+      allowFlight: false,
+      enableCommandBlock: true,
+
+      // Mob spawning
+      spawnAnimals: true,
+      spawnMonsters: true,
+      spawnNpcs: true,
+
+      // Security settings
+      whiteList: false,
+      onlineMode: false,
+    };
+
     const serverSpec: MinecraftServerSpec = {
       serverId: spec.serverId || name,
       tenantId: spec.tenantId || 'default-tenant',
       image: spec.image || 'itzg/minecraft-server:latest',
+      serverType: spec.serverType || 'VANILLA',
       version: spec.version || 'LATEST',
       resources: spec.resources || {
         cpuRequest: '500m',
@@ -152,17 +233,7 @@ export class K8sClient {
         memory: '4G',
         storage: '10Gi',
       },
-      config: spec.config || {
-        maxPlayers: 20,
-        gamemode: 'survival',
-        difficulty: 'normal',
-        levelName: 'world',
-        motd: 'A Minecraft Server',
-        whiteList: false,
-        onlineMode: false,
-        pvp: true,
-        enableCommandBlock: true,
-      },
+      config: { ...defaultConfig, ...spec.config },
     };
 
     const body: MinecraftServer = {
@@ -735,10 +806,12 @@ export class K8sClient {
       playerCount: server.status?.playerCount || 0,
       maxPlayers: server.status?.maxPlayers || server.spec.config.maxPlayers,
       version: server.status?.version || server.spec.version,
+      serverType: server.spec.serverType,
       lastPlayerActivity: server.status?.lastPlayerActivity,
       autoStoppedAt: server.status?.autoStoppedAt,
       autoStop: server.spec.autoStop,
       autoStart: server.spec.autoStart,
+      config: server.spec.config,
     };
   }
 

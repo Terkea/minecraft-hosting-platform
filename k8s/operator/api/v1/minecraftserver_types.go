@@ -22,6 +22,11 @@ type MinecraftServerSpec struct {
 	// +kubebuilder:default="itzg/minecraft-server:latest"
 	Image string `json:"image,omitempty"`
 
+	// ServerType is the type of Minecraft server to run
+	// +kubebuilder:default="VANILLA"
+	// +kubebuilder:validation:Enum=VANILLA;PAPER;SPIGOT;BUKKIT;FORGE;FABRIC;PURPUR;QUILT;NEOFORGE
+	ServerType string `json:"serverType,omitempty"`
+
 	// Version is the Minecraft version to run
 	// +kubebuilder:default="1.20.1"
 	Version string `json:"version,omitempty"`
@@ -90,9 +95,35 @@ type MinecraftServerConfig struct {
 	// +kubebuilder:default="world"
 	LevelName string `json:"levelName,omitempty"`
 
+	// LevelSeed is the world generation seed (optional)
+	LevelSeed string `json:"levelSeed,omitempty"`
+
+	// LevelType is the world generation type
+	// +kubebuilder:default="default"
+	// +kubebuilder:validation:Enum=default;flat;largeBiomes;amplified;singleBiome
+	LevelType string `json:"levelType,omitempty"`
+
 	// MOTD is the message of the day
 	// +kubebuilder:default="A Minecraft Server powered by Kubernetes"
 	MOTD string `json:"motd,omitempty"`
+
+	// SpawnProtection is the radius around spawn that is protected (0 = disabled)
+	// +kubebuilder:default=16
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=1000
+	SpawnProtection int `json:"spawnProtection,omitempty"`
+
+	// ViewDistance is the render distance in chunks (3-32)
+	// +kubebuilder:default=10
+	// +kubebuilder:validation:Minimum=3
+	// +kubebuilder:validation:Maximum=32
+	ViewDistance int `json:"viewDistance,omitempty"`
+
+	// SimulationDistance is the simulation distance in chunks (3-32)
+	// +kubebuilder:default=10
+	// +kubebuilder:validation:Minimum=3
+	// +kubebuilder:validation:Maximum=32
+	SimulationDistance int `json:"simulationDistance,omitempty"`
 
 	// WhiteList enables whitelist mode
 	// +kubebuilder:default=false
@@ -109,6 +140,38 @@ type MinecraftServerConfig struct {
 	// EnableCommandBlock enables command blocks
 	// +kubebuilder:default=true
 	EnableCommandBlock bool `json:"enableCommandBlock,omitempty"`
+
+	// AllowFlight allows players to fly (useful for creative mode)
+	// +kubebuilder:default=false
+	AllowFlight bool `json:"allowFlight,omitempty"`
+
+	// AllowNether enables the Nether dimension
+	// +kubebuilder:default=true
+	AllowNether bool `json:"allowNether,omitempty"`
+
+	// SpawnAnimals enables animal spawning
+	// +kubebuilder:default=true
+	SpawnAnimals bool `json:"spawnAnimals,omitempty"`
+
+	// SpawnMonsters enables monster spawning
+	// +kubebuilder:default=true
+	SpawnMonsters bool `json:"spawnMonsters,omitempty"`
+
+	// SpawnNPCs enables NPC spawning (villagers)
+	// +kubebuilder:default=true
+	SpawnNPCs bool `json:"spawnNPCs,omitempty"`
+
+	// GenerateStructures enables structure generation (villages, temples, etc.)
+	// +kubebuilder:default=true
+	GenerateStructures bool `json:"generateStructures,omitempty"`
+
+	// HardcoreMode enables hardcore mode (death = permanent ban)
+	// +kubebuilder:default=false
+	HardcoreMode bool `json:"hardcoreMode,omitempty"`
+
+	// ForceGamemode forces players into the default gamemode on join
+	// +kubebuilder:default=false
+	ForceGamemode bool `json:"forceGamemode,omitempty"`
 
 	// Additional server properties as key-value pairs
 	AdditionalProperties map[string]string `json:"additionalProperties,omitempty"`
@@ -291,6 +354,10 @@ func (m *MinecraftServer) Default() {
 		m.Spec.Image = "itzg/minecraft-server:latest"
 	}
 
+	if m.Spec.ServerType == "" {
+		m.Spec.ServerType = "VANILLA"
+	}
+
 	if m.Spec.Version == "" {
 		m.Spec.Version = "1.20.1"
 	}
@@ -315,23 +382,43 @@ func (m *MinecraftServer) Default() {
 		m.Spec.Config.LevelName = "world"
 	}
 
+	if m.Spec.Config.LevelType == "" {
+		m.Spec.Config.LevelType = "default"
+	}
+
 	if m.Spec.Config.MOTD == "" {
 		m.Spec.Config.MOTD = "A Minecraft Server powered by Kubernetes"
 	}
 
-	if !m.Spec.Config.OnlineMode && m.ObjectMeta.Annotations == nil {
-		// Default to true for online mode
+	if m.Spec.Config.SpawnProtection == 0 {
+		m.Spec.Config.SpawnProtection = 16
+	}
+
+	if m.Spec.Config.ViewDistance == 0 {
+		m.Spec.Config.ViewDistance = 10
+	}
+
+	if m.Spec.Config.SimulationDistance == 0 {
+		m.Spec.Config.SimulationDistance = 10
+	}
+
+	// Use annotations to track if defaults have been applied for boolean fields
+	// This prevents overwriting explicit false values
+	if m.ObjectMeta.Annotations == nil {
+		m.ObjectMeta.Annotations = make(map[string]string)
+	}
+
+	if _, exists := m.ObjectMeta.Annotations["defaults-applied"]; !exists {
+		// Default to true for these boolean fields
 		m.Spec.Config.OnlineMode = true
-	}
-
-	if !m.Spec.Config.PVP && m.ObjectMeta.Annotations == nil {
-		// Default to true for PVP
 		m.Spec.Config.PVP = true
-	}
-
-	if !m.Spec.Config.EnableCommandBlock && m.ObjectMeta.Annotations == nil {
-		// Default to true for command blocks
 		m.Spec.Config.EnableCommandBlock = true
+		m.Spec.Config.AllowNether = true
+		m.Spec.Config.SpawnAnimals = true
+		m.Spec.Config.SpawnMonsters = true
+		m.Spec.Config.SpawnNPCs = true
+		m.Spec.Config.GenerateStructures = true
+		m.ObjectMeta.Annotations["defaults-applied"] = "true"
 	}
 }
 

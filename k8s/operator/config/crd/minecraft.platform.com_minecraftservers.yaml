@@ -113,6 +113,15 @@ spec:
                       type: string
                     description: Additional server properties as key-value pairs
                     type: object
+                  allowFlight:
+                    default: false
+                    description: AllowFlight allows players to fly (useful for creative
+                      mode)
+                    type: boolean
+                  allowNether:
+                    default: true
+                    description: AllowNether enables the Nether dimension
+                    type: boolean
                   difficulty:
                     default: normal
                     description: Difficulty is the game difficulty
@@ -126,6 +135,11 @@ spec:
                     default: true
                     description: EnableCommandBlock enables command blocks
                     type: boolean
+                  forceGamemode:
+                    default: false
+                    description: ForceGamemode forces players into the default gamemode
+                      on join
+                    type: boolean
                   gamemode:
                     default: survival
                     description: Gamemode is the default game mode
@@ -135,9 +149,32 @@ spec:
                     - adventure
                     - spectator
                     type: string
+                  generateStructures:
+                    default: true
+                    description: GenerateStructures enables structure generation (villages,
+                      temples, etc.)
+                    type: boolean
+                  hardcoreMode:
+                    default: false
+                    description: HardcoreMode enables hardcore mode (death = permanent
+                      ban)
+                    type: boolean
                   levelName:
                     default: world
                     description: LevelName is the world name
+                    type: string
+                  levelSeed:
+                    description: LevelSeed is the world generation seed (optional)
+                    type: string
+                  levelType:
+                    default: default
+                    description: LevelType is the world generation type
+                    enum:
+                    - default
+                    - flat
+                    - largeBiomes
+                    - amplified
+                    - singleBiome
                     type: string
                   maxPlayers:
                     default: 20
@@ -155,6 +192,38 @@ spec:
                     default: true
                     description: PVP enables player vs player combat
                     type: boolean
+                  simulationDistance:
+                    default: 10
+                    description: SimulationDistance is the simulation distance in
+                      chunks (3-32)
+                    maximum: 32
+                    minimum: 3
+                    type: integer
+                  spawnAnimals:
+                    default: true
+                    description: SpawnAnimals enables animal spawning
+                    type: boolean
+                  spawnMonsters:
+                    default: true
+                    description: SpawnMonsters enables monster spawning
+                    type: boolean
+                  spawnNPCs:
+                    default: true
+                    description: SpawnNPCs enables NPC spawning (villagers)
+                    type: boolean
+                  spawnProtection:
+                    default: 16
+                    description: SpawnProtection is the radius around spawn that is
+                      protected (0 = disabled)
+                    maximum: 1000
+                    minimum: 0
+                    type: integer
+                  viewDistance:
+                    default: 10
+                    description: ViewDistance is the render distance in chunks (3-32)
+                    maximum: 32
+                    minimum: 3
+                    type: integer
                   whiteList:
                     default: false
                     description: WhiteList enables whitelist mode
@@ -242,6 +311,20 @@ spec:
                 type: object
               serverId:
                 description: ServerID is the unique identifier for this server instance
+                type: string
+              serverType:
+                default: VANILLA
+                description: ServerType is the type of Minecraft server to run
+                enum:
+                - VANILLA
+                - PAPER
+                - SPIGOT
+                - BUKKIT
+                - FORGE
+                - FABRIC
+                - PURPUR
+                - QUILT
+                - NEOFORGE
                 type: string
               stopped:
                 default: false

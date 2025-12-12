@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   ArrowLeft,
   Server,
@@ -19,6 +20,8 @@ import {
   Play,
   Heart,
   ChevronRight,
+  Settings,
+  Shield,
 } from 'lucide-react';
 import {
   getServer,
@@ -35,15 +38,15 @@ import {
   PlayerData,
 } from './api';
 import { PlayerView } from './PlayerView';
+import { ServerConfigEditor } from './ServerConfigEditor';
+import { PlayerManagement } from './PlayerManagement';
 import type { Server as ServerType } from './types';
 
 interface ServerDetailProps {
-  serverName: string;
-  onBack: () => void;
   connected: boolean;
 }
 
-type Tab = 'overview' | 'console' | 'players';
+type Tab = 'overview' | 'console' | 'players' | 'management' | 'config';
 
 interface ConsoleEntry {
   type: 'log' | 'command' | 'result' | 'error';
@@ -51,13 +54,31 @@ interface ConsoleEntry {
   timestamp: Date;
 }
 
-export function ServerDetail({ serverName, onBack, connected }: ServerDetailProps) {
+const TABS: { id: Tab; label: string; icon: typeof Activity }[] = [
+  { id: 'overview', label: 'Overview', icon: Activity },
+  { id: 'console', label: 'Console', icon: Terminal },
+  { id: 'players', label: 'Players', icon: Users },
+  { id: 'management', label: 'Management', icon: Shield },
+  { id: 'config', label: 'Configuration', icon: Settings },
+];
+
+export function ServerDetail({ connected }: ServerDetailProps) {
+  const { serverName, tab, playerName } = useParams<{
+    serverName: string;
+    tab?: string;
+    playerName?: string;
+  }>();
+  const navigate = useNavigate();
+
+  // Determine active tab from URL
+  const activeTab: Tab = (tab as Tab) || 'overview';
+  const isValidTab = TABS.some((t) => t.id === activeTab);
+
   const [server, setServer] = useState<ServerType | null>(null);
   const [metrics, setMetrics] = useState<ServerMetricsResponse['metrics'] | null>(null);
   const [podStatus, setPodStatus] = useState<PodStatus | null>(null);
   const [consoleEntries, setConsoleEntries] = useState<ConsoleEntry[]>([]);
   const [lastLogCount, setLastLogCount] = useState(0);
-  const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [command, setCommand] = useState('');
@@ -76,6 +97,18 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
   useEffect(() => {
     selectedPlayerNameRef.current = selectedPlayer?.name || null;
   }, [selectedPlayer]);
+
+  // Handle player selection from URL
+  useEffect(() => {
+    if (playerName && playersData?.players) {
+      const player = playersData.players.find((p) => p.name === playerName);
+      if (player) {
+        setSelectedPlayer(player);
+      }
+    } else if (!playerName) {
+      setSelectedPlayer(null);
+    }
+  }, [playerName, playersData]);
 
   // Initial data load
   useEffect(() => {
@@ -99,100 +132,106 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serverName, activeTab]);
 
-  // Fetch players when switching to players tab
+  // Auto-scroll console
   useEffect(() => {
-    if (activeTab === 'players') {
-      void fetchPlayers(true); // Show loading on initial tab switch
+    if (autoScrollRef.current && consoleEndRef.current) {
+      consoleEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab]);
+  }, [consoleEntries]);
 
-  // Auto-scroll console only when new entries are added
-  const prevEntriesLengthRef = useRef(0);
+  // Redirect to valid tab if invalid
   useEffect(() => {
-    // Only scroll if entries were actually added (not on initial render or when no changes)
-    if (autoScrollRef.current && consoleEntries.length > prevEntriesLengthRef.current) {
-      consoleEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (tab && !isValidTab && serverName) {
+      void navigate(`/servers/${serverName}/overview`, { replace: true });
     }
-    prevEntriesLengthRef.current = consoleEntries.length;
-  }, [consoleEntries.length]);
+  }, [tab, isValidTab, serverName, navigate]);
 
   const loadServerData = async () => {
+    if (!serverName) return;
     setIsLoading(true);
-    setError(null);
     try {
       const [serverData, metricsData, podData, logsData] = await Promise.all([
         getServer(serverName),
         getServerMetrics(serverName).catch(() => null),
         getPodStatus(serverName).catch(() => null),
-        getServerLogs(serverName, 200).catch(() => []),
+        getServerLogs(serverName, 100).catch(() => [] as string[]),
       ]);
 
       setServer(serverData);
-      if (metricsData) setMetrics(metricsData.metrics);
-      if (podData) setPodStatus(podData);
+      setMetrics(metricsData?.metrics || null);
+      setPodStatus(podData);
 
-      // Convert logs to console entries
-      const logEntries: ConsoleEntry[] = logsData.map((line: string) => ({
-        type: 'log' as const,
-        content: line,
-        timestamp: new Date(),
-      }));
-      setConsoleEntries(logEntries);
-      setLastLogCount(logsData.length);
-    } catch (error: any) {
-      setError(error.message || 'Failed to load server data');
+      if (logsData.length > 0) {
+        setConsoleEntries(
+          logsData.map((log: string) => ({
+            type: 'log' as const,
+            content: log,
+            timestamp: new Date(),
+          }))
+        );
+        setLastLogCount(logsData.length);
+      }
+
+      setError(null);
+    } catch (err: any) {
+      setError(err.message || 'Failed to load server data');
     } finally {
       setIsLoading(false);
     }
   };
 
   const refreshMetrics = async () => {
+    if (!serverName) return;
     try {
-      const [serverData, metricsData] = await Promise.all([
+      const [serverData, metricsData, podData] = await Promise.all([
         getServer(serverName),
         getServerMetrics(serverName).catch(() => null),
+        getPodStatus(serverName).catch(() => null),
       ]);
+
       setServer(serverData);
-      if (metricsData) setMetrics(metricsData.metrics);
+      setMetrics(metricsData?.metrics || null);
+      setPodStatus(podData);
     } catch {
       // Silently fail on refresh
     }
   };
 
   const refreshLogs = async () => {
+    if (!serverName) return;
     try {
       const logsData = await getServerLogs(serverName, 200);
-      // Only append new logs
       if (logsData.length > lastLogCount) {
         const newLogs = logsData.slice(lastLogCount);
-        const newEntries: ConsoleEntry[] = newLogs.map((line: string) => ({
-          type: 'log' as const,
-          content: line,
-          timestamp: new Date(),
-        }));
-        setConsoleEntries((prev) => [...prev, ...newEntries]);
+        setConsoleEntries((prev) => [
+          ...prev,
+          ...newLogs.map((log: string) => ({
+            type: 'log' as const,
+            content: log,
+            timestamp: new Date(),
+          })),
+        ]);
         setLastLogCount(logsData.length);
       }
     } catch {
-      // Silently fail on refresh
+      // Silently fail
     }
   };
 
   const fetchPlayers = async (showLoading = false) => {
-    // Don't start a new request if one is already in progress
-    if (playersFetchingRef.current) return;
-    if (server?.phase?.toLowerCase() !== 'running') return;
+    if (!serverName || playersFetchingRef.current || server?.phase?.toLowerCase() !== 'running')
+      return;
 
     playersFetchingRef.current = true;
-    // Only show loading indicator on initial load or manual refresh, not background updates
     if (showLoading) {
       setPlayersLoading(true);
     }
+
     try {
       const data = await getServerPlayers(serverName);
       setPlayersData(data);
-      // Update selected player if still in list (use ref to get current value)
+
+      // Update selected player if one is selected
       const currentSelectedName = selectedPlayerNameRef.current;
       if (currentSelectedName) {
         const updated = data.players.find((p) => p.name === currentSelectedName);
@@ -211,6 +250,7 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
   };
 
   const handleStopServer = async () => {
+    if (!serverName) return;
     setIsTogglingServer(true);
     try {
       await stopServer(serverName);
@@ -223,6 +263,7 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
   };
 
   const handleStartServer = async () => {
+    if (!serverName) return;
     setIsTogglingServer(true);
     try {
       await startServer(serverName);
@@ -236,7 +277,7 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
 
   const handleExecuteCommand = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!command.trim() || isExecutingCommand) return;
+    if (!serverName || !command.trim() || isExecutingCommand) return;
 
     setIsExecutingCommand(true);
     const cmd = command.trim();
@@ -301,6 +342,16 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
   };
 
+  const handlePlayerSelect = (player: PlayerData) => {
+    setSelectedPlayer(player);
+    void navigate(`/servers/${serverName}/players/${player.name}`);
+  };
+
+  const handlePlayerBack = () => {
+    setSelectedPlayer(null);
+    void navigate(`/servers/${serverName}/players`);
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center">
@@ -318,12 +369,12 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
         <div className="text-center">
           <Server className="w-12 h-12 text-red-500 mx-auto mb-4" />
           <p className="text-red-400 mb-4">{error || 'Server not found'}</p>
-          <button
-            onClick={onBack}
-            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
+          <Link
+            to="/"
+            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors inline-block"
           >
             Go Back
-          </button>
+          </Link>
         </div>
       </div>
     );
@@ -336,12 +387,12 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
         <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <button
-                onClick={onBack}
+              <Link
+                to="/"
                 className="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors"
               >
                 <ArrowLeft className="w-5 h-5" />
-              </button>
+              </Link>
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-green-600 rounded-lg">
                   <Server className="w-6 h-6 text-white" />
@@ -411,14 +462,10 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
       <div className="border-b border-gray-700 bg-gray-800/30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <nav className="flex gap-1">
-            {[
-              { id: 'overview', label: 'Overview', icon: Activity },
-              { id: 'console', label: 'Console', icon: Terminal },
-              { id: 'players', label: 'Players', icon: Users },
-            ].map(({ id, label, icon: Icon }) => (
-              <button
+            {TABS.map(({ id, label, icon: Icon }) => (
+              <Link
                 key={id}
-                onClick={() => setActiveTab(id as Tab)}
+                to={`/servers/${serverName}/${id}`}
                 className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
                   activeTab === id
                     ? 'border-green-500 text-green-400'
@@ -427,7 +474,7 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
               >
                 <Icon className="w-4 h-4" />
                 {label}
-              </button>
+              </Link>
             ))}
           </nav>
         </div>
@@ -685,7 +732,8 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
               <div className="p-6">
                 <PlayerView
                   player={selectedPlayer}
-                  onBack={() => setSelectedPlayer(null)}
+                  serverName={serverName!}
+                  onBack={handlePlayerBack}
                   onRefresh={() => fetchPlayers(true)}
                   isLoading={playersLoading}
                 />
@@ -736,7 +784,7 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
                       {playersData.players.map((player) => (
                         <button
                           key={player.name}
-                          onClick={() => setSelectedPlayer(player)}
+                          onClick={() => handlePlayerSelect(player)}
                           className="flex items-center gap-4 p-3 bg-gray-700/50 hover:bg-gray-700 rounded-lg transition-colors text-left w-full"
                         >
                           <img
@@ -776,6 +824,20 @@ export function ServerDetail({ serverName, onBack, connected }: ServerDetailProp
               </>
             )}
           </div>
+        )}
+
+        {activeTab === 'management' && (
+          <PlayerManagement
+            serverName={serverName!}
+            isRunning={server.phase?.toLowerCase() === 'running'}
+          />
+        )}
+
+        {activeTab === 'config' && (
+          <ServerConfigEditor
+            server={server}
+            onUpdate={(updatedServer) => setServer(updatedServer)}
+          />
         )}
       </main>
     </div>

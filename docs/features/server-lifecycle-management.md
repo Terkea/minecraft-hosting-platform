@@ -349,7 +349,7 @@ kubectl apply -f k8s/operator/config/crd/
 kubectl apply -f k8s/manifests/dev/gate.yaml
 
 # 5. Start operator (local)
-cd k8s/operator && RCON_PASSWORD=changeme ./bin/operator.exe
+cd k8s/operator && RCON_PASSWORD=<your-rcon-password> ./bin/operator.exe
 
 # 6. Start API server
 cd api-server && npm run dev
@@ -420,3 +420,360 @@ curl -X PUT http://localhost:3000/api/v1/servers/test-server/start
    ```bash
    kubectl get mcserver <name> -n minecraft-servers -o yaml | grep lastPlayerActivity
    ```
+
+---
+
+# 1.2 Server Configuration
+
+**Status**: COMPLETE
+**Related Requirements**: FR-007 to FR-012
+**Last Updated**: 2025-12-12
+
+## Overview
+
+Server Configuration provides both persistent configuration (requiring restart) and live settings (instant RCON commands) for Minecraft servers. The UI uses tabbed navigation with clear indicators for which changes require restarts.
+
+## Features
+
+### 1. Server Properties (Restart Required)
+
+**API Endpoint**: `PATCH /api/v1/servers/{name}`
+
+Properties that require server restart to take effect:
+
+| Property             | Type    | Description                         |
+| -------------------- | ------- | ----------------------------------- |
+| `maxPlayers`         | number  | Maximum concurrent players (1-1000) |
+| `gamemode`           | string  | Default gamemode for new players    |
+| `difficulty`         | string  | peaceful, easy, normal, hard        |
+| `motd`               | string  | Server list message                 |
+| `pvp`                | boolean | Allow player vs player combat       |
+| `allowFlight`        | boolean | Allow flying in survival mode       |
+| `enableCommandBlock` | boolean | Enable command blocks               |
+| `forceGamemode`      | boolean | Force gamemode on join              |
+| `hardcoreMode`       | boolean | Enable hardcore mode                |
+| `spawnAnimals`       | boolean | Spawn passive mobs                  |
+| `spawnMonsters`      | boolean | Spawn hostile mobs                  |
+| `spawnNpcs`          | boolean | Spawn villagers                     |
+| `viewDistance`       | number  | Chunk render distance (3-32)        |
+| `simulationDistance` | number  | Entity simulation distance          |
+| `spawnProtection`    | number  | Spawn area protection radius        |
+| `whiteList`          | boolean | Enable whitelist mode               |
+| `onlineMode`         | boolean | Require Microsoft authentication    |
+
+**Request Example**:
+
+```json
+PATCH /api/v1/servers/my-server
+{
+  "maxPlayers": 50,
+  "difficulty": "hard",
+  "pvp": true
+}
+```
+
+### 2. Live Settings (Instant RCON)
+
+Settings that apply immediately via RCON commands without restart:
+
+#### Weather Control
+
+**API**: `POST /api/v1/servers/{name}/console`
+
+```json
+{ "command": "weather clear" }
+{ "command": "weather rain" }
+{ "command": "weather thunder" }
+```
+
+#### Time Control
+
+```json
+{ "command": "time set day" }     // 1000 ticks
+{ "command": "time set noon" }    // 6000 ticks
+{ "command": "time set sunset" }  // 12000 ticks
+{ "command": "time set night" }   // 13000 ticks
+{ "command": "time set midnight" }// 18000 ticks
+{ "command": "time set sunrise" } // 23000 ticks
+```
+
+#### Gamerules
+
+Gamerules persist across restarts (stored in `level.dat`).
+
+**Minecraft 1.21+ uses snake_case names**:
+
+| Gamerule                              | Description                         |
+| ------------------------------------- | ----------------------------------- |
+| `keep_inventory`                      | Keep items on death                 |
+| `pvp`                                 | Allow PvP damage                    |
+| `natural_health_regeneration`         | Regen health when fed               |
+| `immediate_respawn`                   | Skip death screen                   |
+| `fall_damage`                         | Take fall damage                    |
+| `fire_damage`                         | Take fire damage                    |
+| `drowning_damage`                     | Take drowning damage                |
+| `freeze_damage`                       | Take freeze damage                  |
+| `advance_time`                        | Daylight cycle enabled              |
+| `advance_weather`                     | Weather cycle enabled               |
+| `spawn_mobs`                          | Natural mob spawning                |
+| `raids`                               | Pillager raids can occur            |
+| `spawn_wardens`                       | Wardens can spawn                   |
+| `spawn_patrols`                       | Pillager patrols spawn              |
+| `mob_drops`                           | Mobs drop items on death            |
+| `block_drops`                         | Blocks drop items when broken       |
+| `entity_drops`                        | Entities drop items                 |
+| `tnt_explodes`                        | TNT can explode                     |
+| `show_advancement_messages`           | Show advancement messages           |
+| `show_death_messages`                 | Show death messages                 |
+| `send_command_feedback`               | Show command output                 |
+| `allow_entering_nether_using_portals` | Nether portals work                 |
+| `ender_pearls_vanish_on_death`        | Thrown ender pearls vanish on death |
+| `command_blocks_work`                 | Command blocks can execute          |
+| `spawner_blocks_work`                 | Mob spawners can spawn mobs         |
+
+**API for Gamerules**:
+
+```bash
+# Get current value
+POST /api/v1/servers/{name}/console
+{ "command": "gamerule keep_inventory" }
+# Returns: "Gamerule keep_inventory is currently set to: false"
+
+# Set value
+POST /api/v1/servers/{name}/console
+{ "command": "gamerule keep_inventory true" }
+```
+
+#### Broadcast Messages
+
+```json
+POST /api/v1/servers/{name}/console
+{ "command": "say Hello everyone!" }
+```
+
+### 3. Frontend UI
+
+**URL Routes**:
+
+| Route                   | View                     |
+| ----------------------- | ------------------------ |
+| `/servers/:name/config` | Server configuration tab |
+
+**Tab Layout** (`ServerConfigEditor.tsx`):
+
+- **Live Settings** (green "Instant" badge): Weather, time, gamerules, broadcast
+- **Server Properties** (yellow "Restart" badge): All persistent config options
+
+**Key Files**:
+
+- `frontend/src/ServerConfigEditor.tsx` - Configuration editor with tabs
+- `frontend/src/LiveSettings.tsx` - Instant RCON settings component
+- `frontend/src/api.ts` - API functions for config updates
+
+---
+
+# 1.4 Player Management
+
+**Status**: COMPLETE
+**Related Requirements**: FR-017 to FR-022
+**Last Updated**: 2025-12-12
+
+## Overview
+
+Player Management provides comprehensive tools for managing players including online player monitoring, whitelist/ban management, operator controls, and per-player actions.
+
+## Features
+
+### 1. Online Players View
+
+**API Endpoint**: `GET /api/v1/servers/{name}/players`
+
+**Response**:
+
+```json
+{
+  "online": 3,
+  "max": 20,
+  "players": [
+    {
+      "name": "Steve",
+      "health": 20,
+      "maxHealth": 20,
+      "foodLevel": 18,
+      "xpLevel": 15,
+      "gameMode": 0,
+      "gameModeName": "Survival",
+      "position": { "x": 100.5, "y": 64, "z": -200.3 },
+      "dimension": "minecraft:overworld",
+      "inventory": [...],
+      "equipment": {...},
+      "enderItems": [...],
+      "abilities": {...}
+    }
+  ]
+}
+```
+
+**URL Route**: `/servers/:name/players`
+
+**Individual Player View**: `/servers/:name/players/:playerName`
+
+### 2. Player Actions
+
+Actions available for each online player:
+
+| Action          | API Call                                    | Description               |
+| --------------- | ------------------------------------------- | ------------------------- |
+| Change Gamemode | `gamemode <mode> <player>`                  | Set player's gamemode     |
+| Heal            | `effect give <player> instant_health 1 100` | Fully heal player         |
+| Feed            | `effect give <player> saturation 1 100`     | Restore hunger            |
+| Clear Effects   | `effect clear <player>`                     | Remove all potion effects |
+| Kick            | `kick <player> [reason]`                    | Disconnect player         |
+| Ban             | `ban <player> [reason]`                     | Permanently ban player    |
+| Grant Op        | `op <player>`                               | Give operator status      |
+| Revoke Op       | `deop <player>`                             | Remove operator status    |
+
+**API Functions** (`frontend/src/api.ts`):
+
+```typescript
+setPlayerGamemode(serverName, player, gamemode): Promise<CommandResult>
+healPlayer(serverName, player): Promise<CommandResult>
+feedPlayer(serverName, player): Promise<CommandResult>
+clearPlayerEffects(serverName, player): Promise<CommandResult>
+kickPlayer(serverName, player, reason?): Promise<void>
+banPlayer(serverName, player, reason?): Promise<void>
+grantOp(serverName, player): Promise<void>
+revokeOp(serverName, player): Promise<void>
+```
+
+### 3. Whitelist Management
+
+**API Endpoints**:
+
+| Method   | Endpoint                                    | Description          |
+| -------- | ------------------------------------------- | -------------------- |
+| `GET`    | `/api/v1/servers/{name}/whitelist`          | Get whitelist status |
+| `POST`   | `/api/v1/servers/{name}/whitelist`          | Add player           |
+| `DELETE` | `/api/v1/servers/{name}/whitelist/{player}` | Remove player        |
+| `PUT`    | `/api/v1/servers/{name}/whitelist/toggle`   | Enable/disable       |
+
+**Response Example**:
+
+```json
+{
+  "enabled": true,
+  "count": 5,
+  "players": ["Steve", "Alex", "Notch", "jeb_", "Dinnerbone"]
+}
+```
+
+### 4. Ban Management
+
+**API Endpoints**:
+
+| Method   | Endpoint                               | Description  |
+| -------- | -------------------------------------- | ------------ |
+| `GET`    | `/api/v1/servers/{name}/bans`          | Get ban list |
+| `POST`   | `/api/v1/servers/{name}/bans`          | Ban player   |
+| `DELETE` | `/api/v1/servers/{name}/bans/{player}` | Unban player |
+
+**IP Ban Endpoints**:
+
+| Method   | Endpoint                               | Description     |
+| -------- | -------------------------------------- | --------------- |
+| `GET`    | `/api/v1/servers/{name}/bans/ips`      | Get IP ban list |
+| `POST`   | `/api/v1/servers/{name}/bans/ips`      | Ban IP          |
+| `DELETE` | `/api/v1/servers/{name}/bans/ips/{ip}` | Unban IP        |
+
+### 5. Operator Management
+
+**API Endpoints**:
+
+| Method   | Endpoint                              | Description |
+| -------- | ------------------------------------- | ----------- |
+| `POST`   | `/api/v1/servers/{name}/ops`          | Grant op    |
+| `DELETE` | `/api/v1/servers/{name}/ops/{player}` | Revoke op   |
+
+### 6. Kick Player
+
+**API Endpoint**: `POST /api/v1/servers/{name}/kick`
+
+**Request Body**:
+
+```json
+{
+  "player": "Steve",
+  "reason": "AFK too long"
+}
+```
+
+### 7. Frontend UI
+
+**URL Routes**:
+
+| Route                            | View                     |
+| -------------------------------- | ------------------------ |
+| `/servers/:name/players`         | Online players list      |
+| `/servers/:name/players/:player` | Individual player detail |
+| `/servers/:name/management`      | Player management tabs   |
+
+**Management Tab Layout** (`PlayerManagement.tsx`):
+
+- **Whitelist**: Add/remove players, toggle whitelist mode
+- **Operators**: Grant/revoke op status
+- **Bans**: Ban/unban players with reasons
+- **IP Bans**: Ban/unban IP addresses
+
+**Key Files**:
+
+- `frontend/src/PlayerView.tsx` - Individual player detail view
+- `frontend/src/PlayerManagement.tsx` - Whitelist/ban/op management
+- `api-server/src/index.ts` - All player management API endpoints
+
+### 8. Player Data Sources
+
+Player data is fetched from the server using RCON commands and NBT data parsing:
+
+1. **Player List**: `list` command for online players
+2. **Player Data**: NBT file parsing from `world/playerdata/<uuid>.dat`
+3. **Equipment**: Parsed from inventory slots
+4. **Position/Dimension**: From player NBT data
+
+---
+
+# URL Routing Structure
+
+**Status**: COMPLETE
+**Last Updated**: 2025-12-12
+
+## Overview
+
+The frontend uses React Router for URL-based navigation, making all views bookmarkable and shareable.
+
+## Routes
+
+| URL Pattern                          | Component    | Description                  |
+| ------------------------------------ | ------------ | ---------------------------- |
+| `/`                                  | ServerList   | Home - all servers           |
+| `/servers/:serverName`               | ServerDetail | Server detail (overview tab) |
+| `/servers/:serverName/overview`      | ServerDetail | Overview tab                 |
+| `/servers/:serverName/console`       | ServerDetail | Console tab                  |
+| `/servers/:serverName/players`       | ServerDetail | Players list tab             |
+| `/servers/:serverName/players/:name` | ServerDetail | Individual player view       |
+| `/servers/:serverName/management`    | ServerDetail | Player management tab        |
+| `/servers/:serverName/config`        | ServerDetail | Server configuration tab     |
+
+## Implementation
+
+**Key Files**:
+
+- `frontend/src/main.tsx` - BrowserRouter setup
+- `frontend/src/App.tsx` - Route definitions
+- `frontend/src/ServerList.tsx` - Server list component
+- `frontend/src/ServerDetail.tsx` - Server detail with tab routing
+
+**Route Parameters**:
+
+- `serverName`: Name of the Minecraft server
+- `tab`: Active tab (overview, console, players, management, config)
+- `name`: Player name (for player detail view)
