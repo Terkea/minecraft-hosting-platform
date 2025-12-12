@@ -914,73 +914,212 @@ const [consoleView, setConsoleView] = useState<'live' | 'files'>('live');
 
 ## Overview
 
-Player Management provides comprehensive tools for managing players including online player monitoring, whitelist/ban management, operator controls, and per-player actions.
+Player Management provides comprehensive tools for managing players including online player monitoring, whitelist/ban management, operator controls, and per-player actions. Inspired by Apex Hosting and Shockbyte's player management interfaces.
+
+## Requirements Coverage
+
+| Requirement | Description          | Priority | Status   |
+| ----------- | -------------------- | -------- | -------- |
+| FR-017      | Online players list  | P0       | Complete |
+| FR-018      | Whitelist management | P0       | Complete |
+| FR-019      | Ban management       | P0       | Complete |
+| FR-020      | OP management        | P0       | Complete |
+| FR-021      | Kick player          | P0       | Complete |
+| FR-022      | Player data view     | P1       | Complete |
+
+## Technical Architecture
+
+### Data Flow
+
+```
+Frontend (React) → API Server (Express) → RCON → Minecraft Server
+                                       ↓
+                              K8sClient.executeCommand()
+                                       ↓
+                              RCON Pool → Pod Container
+```
+
+### How Player Data is Retrieved
+
+Player data uses Minecraft's `/data get entity` command via RCON, NOT file-based NBT parsing:
+
+```typescript
+// api-server/src/index.ts:1104-1114
+const dataPromises = [
+  k8sClient.executeCommand(name, `data get entity ${playerName} Health`),
+  k8sClient.executeCommand(name, `data get entity ${playerName} foodLevel`),
+  k8sClient.executeCommand(name, `data get entity ${playerName} Pos`),
+  k8sClient.executeCommand(name, `data get entity ${playerName} Dimension`),
+  k8sClient.executeCommand(name, `data get entity ${playerName} playerGameType`),
+  k8sClient.executeCommand(name, `data get entity ${playerName} Inventory`),
+  k8sClient.executeCommand(name, `data get entity ${playerName} XpLevel`),
+  k8sClient.executeCommand(name, `data get entity ${playerName} SelectedItemSlot`),
+  k8sClient.executeCommand(name, `data get entity ${playerName} equipment`),
+];
+```
+
+**Response Format from Minecraft**:
+
+```
+Player has the following entity data: 20.0f          // Health
+Player has the following entity data: 18             // foodLevel
+Player has the following entity data: [100.5d, 64.0d, -200.3d]  // Pos
+Player has the following entity data: "minecraft:overworld"     // Dimension
+Player has the following entity data: 0              // playerGameType
+```
+
+### NBT-like String Parsing
+
+The API parses Minecraft's NBT-like text output:
+
+```typescript
+// api-server/src/index.ts:1131-1202
+function parsePlayerDataFromFields(playerName: string, results: string[]): any {
+  // Parse Health - format: "Player has the following entity data: 20.0f"
+  const healthMatch = healthStr.match(/([\d.]+)f?$/);
+  if (healthMatch) player.health = parseFloat(healthMatch[1]);
+
+  // Parse Pos - format: "[123.0d, 64.0d, -456.0d]"
+  const posMatch = posStr.match(/\[([-\d.]+)d?,\s*([-\d.]+)d?,\s*([-\d.]+)d?\]/);
+  if (posMatch) {
+    player.position = {
+      x: parseFloat(posMatch[1]),
+      y: parseFloat(posMatch[2]),
+      z: parseFloat(posMatch[3]),
+    };
+  }
+
+  // Parse Dimension - format: "minecraft:overworld"
+  const dimMatch = dimStr.match(/"([^"]+)"$/);
+  if (dimMatch) player.dimension = dimMatch[1].replace('minecraft:', '');
+}
+```
+
+### Inventory Parsing
+
+Inventory items are parsed from NBT array format:
+
+```typescript
+// api-server/src/index.ts:1503-1550
+function parseInventoryItems(invString: string): any[] {
+  // NBT format: {Slot: 0b, id: "minecraft:diamond_sword", count: 1, components: {...}}
+  // Find balanced braces to extract each item
+  let depth = 0;
+  for (let i = 0; i < invString.length; i++) {
+    if (invString[i] === '{') depth++;
+    else if (invString[i] === '}') {
+      depth--;
+      if (depth === 0) {
+        const item = parseInventoryItem(itemStr);
+        items.push(item);
+      }
+    }
+  }
+}
+
+function parseInventoryItem(itemStr: string): any {
+  const slotMatch = itemStr.match(/Slot:\s*(-?\d+)b/);
+  const idMatch = itemStr.match(/id:\s*"([^"]+)"/);
+  const countMatch = itemStr.match(/(?:count|Count):\s*(\d+)/);
+  // Extract enchantments from components
+  // Extract custom_name, damage for durability display
+}
+```
 
 ## Features
 
-### 1. Online Players View
+### 1. Online Players List (P0)
 
 **API Endpoint**: `GET /api/v1/servers/{name}/players`
 
-**Response**:
+**Implementation** (`api-server/src/index.ts:935-1051`):
+
+1. Execute `list` RCON command
+2. Parse response: `"There are X of a max of Y players online: player1, player2"`
+3. For each player, fetch basic data (health, gamemode) with 5s timeout
+4. Return aggregated player list
+
+**List View Response** (optimized - only basic fields):
 
 ```json
 {
   "online": 3,
   "max": 20,
   "players": [
-    {
-      "name": "Steve",
-      "health": 20,
-      "maxHealth": 20,
-      "foodLevel": 18,
-      "xpLevel": 15,
-      "gameMode": 0,
-      "gameModeName": "Survival",
-      "position": { "x": 100.5, "y": 64, "z": -200.3 },
-      "dimension": "minecraft:overworld",
-      "inventory": [...],
-      "equipment": {...},
-      "enderItems": [...],
-      "abilities": {...}
-    }
+    { "name": "Steve", "health": 20, "maxHealth": 20, "gameMode": 0, "gameModeName": "Survival" },
+    { "name": "Alex", "health": 18, "maxHealth": 20, "gameMode": 1, "gameModeName": "Creative" }
   ]
 }
 ```
 
-**URL Route**: `/servers/:name/players`
+### 2. Individual Player Detail (P1)
 
-**Individual Player View**: `/servers/:name/players/:playerName`
+**API Endpoint**: `GET /api/v1/servers/{name}/players/{playerName}`
 
-### 2. Player Actions
+**Full Response**:
 
-Actions available for each online player:
-
-| Action          | API Call                                    | Description               |
-| --------------- | ------------------------------------------- | ------------------------- |
-| Change Gamemode | `gamemode <mode> <player>`                  | Set player's gamemode     |
-| Heal            | `effect give <player> instant_health 1 100` | Fully heal player         |
-| Feed            | `effect give <player> saturation 1 100`     | Restore hunger            |
-| Clear Effects   | `effect clear <player>`                     | Remove all potion effects |
-| Kick            | `kick <player> [reason]`                    | Disconnect player         |
-| Ban             | `ban <player> [reason]`                     | Permanently ban player    |
-| Grant Op        | `op <player>`                               | Give operator status      |
-| Revoke Op       | `deop <player>`                             | Remove operator status    |
-
-**API Functions** (`frontend/src/api.ts`):
-
-```typescript
-setPlayerGamemode(serverName, player, gamemode): Promise<CommandResult>
-healPlayer(serverName, player): Promise<CommandResult>
-feedPlayer(serverName, player): Promise<CommandResult>
-clearPlayerEffects(serverName, player): Promise<CommandResult>
-kickPlayer(serverName, player, reason?): Promise<void>
-banPlayer(serverName, player, reason?): Promise<void>
-grantOp(serverName, player): Promise<void>
-revokeOp(serverName, player): Promise<void>
+```json
+{
+  "name": "Steve",
+  "health": 20,
+  "maxHealth": 20,
+  "foodLevel": 18,
+  "foodSaturation": 5.0,
+  "xpLevel": 15,
+  "xpTotal": 352,
+  "gameMode": 0,
+  "gameModeName": "Survival",
+  "position": { "x": 100.5, "y": 64, "z": -200.3 },
+  "dimension": "overworld",
+  "air": 300,
+  "fire": -20,
+  "onGround": true,
+  "selectedSlot": 0,
+  "inventory": [
+    { "slot": 0, "id": "minecraft:diamond_sword", "count": 1, "damage": 50, "enchantments": { "sharpness": 5 } }
+  ],
+  "equipment": {
+    "head": { "id": "minecraft:diamond_helmet", "count": 1, "damage": 100 },
+    "chest": { "id": "minecraft:diamond_chestplate", "count": 1 },
+    "legs": null,
+    "feet": { "id": "minecraft:diamond_boots", "count": 1 },
+    "offhand": { "id": "minecraft:shield", "count": 1 }
+  },
+  "enderItems": [...],
+  "abilities": {
+    "invulnerable": false,
+    "mayFly": false,
+    "flying": false,
+    "instabuild": false
+  }
+}
 ```
 
-### 3. Whitelist Management
+### 3. Player Actions
+
+| Action          | Minecraft Command                           | API Endpoint                   |
+| --------------- | ------------------------------------------- | ------------------------------ |
+| Change Gamemode | `gamemode <mode> <player>`                  | `POST /console` with command   |
+| Heal            | `effect give <player> instant_health 1 100` | `POST /console` with command   |
+| Feed            | `effect give <player> saturation 1 100`     | `POST /console` with command   |
+| Clear Effects   | `effect clear <player>`                     | `POST /console` with command   |
+| Kick            | `kick <player> [reason]`                    | `POST /{name}/kick`            |
+| Ban             | `ban <player> [reason]`                     | `POST /{name}/bans`            |
+| Unban           | `pardon <player>`                           | `DELETE /{name}/bans/{player}` |
+| Grant Op        | `op <player>`                               | `POST /{name}/ops`             |
+| Revoke Op       | `deop <player>`                             | `DELETE /{name}/ops/{player}`  |
+
+### 4. Whitelist Management (P0)
+
+**Minecraft Commands Used**:
+
+| API Action | RCON Command              | Response Parsing                             |
+| ---------- | ------------------------- | -------------------------------------------- |
+| List       | `whitelist list`          | `"There are X whitelisted players: a, b, c"` |
+| Add        | `whitelist add <player>`  | Success/failure message                      |
+| Remove     | `whitelist remove <name>` | Success/failure message                      |
+| Enable     | `whitelist on`            | Confirmation                                 |
+| Disable    | `whitelist off`           | Confirmation                                 |
 
 **API Endpoints**:
 
@@ -991,59 +1130,165 @@ revokeOp(serverName, player): Promise<void>
 | `DELETE` | `/api/v1/servers/{name}/whitelist/{player}` | Remove player        |
 | `PUT`    | `/api/v1/servers/{name}/whitelist/toggle`   | Enable/disable       |
 
-**Response Example**:
+### 5. Ban Management (P0)
 
-```json
-{
-  "enabled": true,
-  "count": 5,
-  "players": ["Steve", "Alex", "Notch", "jeb_", "Dinnerbone"]
-}
-```
+**Minecraft Commands Used**:
 
-### 4. Ban Management
+| API Action | RCON Command            | Response Parsing                   |
+| ---------- | ----------------------- | ---------------------------------- |
+| List       | `banlist players`       | `"There are X ban(s): player1..."` |
+| Ban        | `ban <player> [reason]` | Confirmation                       |
+| Unban      | `pardon <player>`       | Confirmation                       |
+| List IPs   | `banlist ips`           | `"There are X ban(s): ip1..."`     |
+| Ban IP     | `ban-ip <ip> [reason]`  | Confirmation                       |
+| Unban IP   | `pardon-ip <ip>`        | Confirmation                       |
 
 **API Endpoints**:
 
-| Method   | Endpoint                               | Description  |
-| -------- | -------------------------------------- | ------------ |
-| `GET`    | `/api/v1/servers/{name}/bans`          | Get ban list |
-| `POST`   | `/api/v1/servers/{name}/bans`          | Ban player   |
-| `DELETE` | `/api/v1/servers/{name}/bans/{player}` | Unban player |
-
-**IP Ban Endpoints**:
-
 | Method   | Endpoint                               | Description     |
 | -------- | -------------------------------------- | --------------- |
+| `GET`    | `/api/v1/servers/{name}/bans`          | Get ban list    |
+| `POST`   | `/api/v1/servers/{name}/bans`          | Ban player      |
+| `DELETE` | `/api/v1/servers/{name}/bans/{player}` | Unban player    |
 | `GET`    | `/api/v1/servers/{name}/bans/ips`      | Get IP ban list |
 | `POST`   | `/api/v1/servers/{name}/bans/ips`      | Ban IP          |
 | `DELETE` | `/api/v1/servers/{name}/bans/ips/{ip}` | Unban IP        |
 
-### 5. Operator Management
+### 6. Operator Management (P0)
 
-**API Endpoints**:
+**Note**: Minecraft has no `op list` command. Ops are tracked locally in the frontend session.
 
-| Method   | Endpoint                              | Description |
-| -------- | ------------------------------------- | ----------- |
-| `POST`   | `/api/v1/servers/{name}/ops`          | Grant op    |
-| `DELETE` | `/api/v1/servers/{name}/ops/{player}` | Revoke op   |
+| Method   | Endpoint                              | RCON Command    |
+| -------- | ------------------------------------- | --------------- |
+| `POST`   | `/api/v1/servers/{name}/ops`          | `op <player>`   |
+| `DELETE` | `/api/v1/servers/{name}/ops/{player}` | `deop <player>` |
 
-### 6. Kick Player
+## Frontend Components
 
-**API Endpoint**: `POST /api/v1/servers/{name}/kick`
+### PlayerManagement.tsx
 
-**Request Body**:
+**Purpose**: Tabbed interface for whitelist, ops, bans, IP bans management.
 
-```json
-{
-  "player": "Steve",
-  "reason": "AFK too long"
-}
+**State Management**:
+
+```typescript
+const [activeTab, setActiveTab] = useState<'whitelist' | 'ops' | 'bans' | 'ip-bans'>('whitelist');
+const [whitelist, setWhitelist] = useState<WhitelistResponse | null>(null);
+const [banList, setBanList] = useState<BanListResponse | null>(null);
+const [ipBanList, setIpBanList] = useState<IpBanListResponse | null>(null);
+const [opPlayers, setOpPlayers] = useState<string[]>([]); // Session-only tracking
 ```
 
-### 7. Frontend UI
+**Features**:
 
-**URL Routes**:
+- Tab navigation with icons (Shield, Crown, Ban, Globe)
+- Add/remove forms with input validation
+- Player avatars from `mc-heads.net/avatar/{name}/32`
+- Kick modal with reason input
+- Success/error notifications with auto-dismiss
+
+### PlayerView.tsx
+
+**Purpose**: Detailed Minecraft-style player profile with inventory visualization.
+
+**Minecraft-Style UI Components**:
+
+1. **Health Bar** - SVG hearts (full, half, empty):
+
+```typescript
+const HealthBar = ({ health, maxHealth }) => {
+  const hearts = Math.ceil(maxHealth / 2); // 10 hearts for 20 HP
+  const fullHearts = Math.floor(health / 2);
+  const halfHeart = health % 2 === 1;
+  // Render red heart SVGs
+};
+```
+
+2. **Hunger Bar** - Drumstick icons:
+
+```typescript
+const HungerBar = ({ food }) => {
+  const drumsticks = 10;
+  const fullDrumsticks = Math.floor(food / 2);
+  // Render orange drumstick SVGs (reversed order like Minecraft)
+};
+```
+
+3. **XP Bar** - Green progress bar with level number:
+
+```typescript
+const XPBar = ({ level, total }) => {
+  const xpForLevel = (lvl) => {
+    if (lvl <= 16) return lvl * lvl + 6 * lvl;
+    if (lvl <= 31) return 2.5 * lvl * lvl - 40.5 * lvl + 360;
+    return 4.5 * lvl * lvl - 162.5 * lvl + 2220;
+  };
+  // Calculate progress to next level
+};
+```
+
+4. **Inventory Grid** - 9x4 slot grid with hotbar highlighting:
+
+```typescript
+// Hotbar: slots 0-8 (highlighted, larger)
+// Main inventory: slots 9-35 (3 rows of 9)
+const InventorySlot = ({ item, slotNumber, isSelected }) => {
+  // Purple border for enchanted items
+  // Durability bar for damaged items
+  // Stack count overlay
+  // Hover tooltip with enchantments
+};
+```
+
+5. **Equipment Panel** - Armor slots + offhand:
+
+```typescript
+const EquipmentSlot = ({ item, label }) => (
+  // head, chest, legs, feet, offhand
+  // With durability bars and enchantment glow
+);
+```
+
+### Item Icon System
+
+**Multi-CDN Fallback** (`PlayerView.tsx:48-78`):
+
+```typescript
+const getItemIconUrl = (itemId: string): string => {
+  const cleanId = itemId.replace('minecraft:', '');
+  return `https://minecraft-api.vercel.app/images/items/${cleanId}.png`;
+};
+
+const getAlternativeIconUrls = (itemId: string): string[] => [
+  `https://minecraft-api.vercel.app/images/blocks/${cleanId}.png`,
+  `https://mc.nerothe.com/img/1.21.1/${cleanId}.png`,
+  `https://minecraft.wiki/images/${wikiName}_JE1_BE1.png`,
+  // ... more fallbacks
+  `https://raw.githubusercontent.com/InventivetalentDev/minecraft-assets/1.21/assets/minecraft/textures/item/${cleanId}.png`,
+];
+```
+
+**Fallback Behavior**:
+
+1. Try primary CDN
+2. On error, try next URL in fallback list
+3. Cache failed item IDs to avoid retry
+4. Final fallback: styled div with item initials
+
+**Durability Database** (`PlayerView.tsx:153-204`):
+
+```typescript
+const getMaxDurability = (itemId: string): number => {
+  const durabilities: Record<string, number> = {
+    'minecraft:diamond_sword': 1561,
+    'minecraft:netherite_pickaxe': 2031,
+    // ... complete durability table
+  };
+  return durabilities[itemId] || 0;
+};
+```
+
+## URL Routes
 
 | Route                            | View                     |
 | -------------------------------- | ------------------------ |
@@ -1051,27 +1296,39 @@ revokeOp(serverName, player): Promise<void>
 | `/servers/:name/players/:player` | Individual player detail |
 | `/servers/:name/management`      | Player management tabs   |
 
-**Management Tab Layout** (`PlayerManagement.tsx`):
+## Key Files
 
-- **Whitelist**: Add/remove players, toggle whitelist mode
-- **Operators**: Grant/revoke op status
-- **Bans**: Ban/unban players with reasons
-- **IP Bans**: Ban/unban IP addresses
+| File                                | Purpose                                 |
+| ----------------------------------- | --------------------------------------- |
+| `frontend/src/PlayerView.tsx`       | Player detail with inventory (1135 LOC) |
+| `frontend/src/PlayerManagement.tsx` | Whitelist/ban/op tabs (751 LOC)         |
+| `frontend/src/api.ts`               | API client functions                    |
+| `api-server/src/index.ts:935-1994`  | All player management endpoints         |
 
-**Key Files**:
+## Troubleshooting
 
-- `frontend/src/PlayerView.tsx` - Individual player detail view
-- `frontend/src/PlayerManagement.tsx` - Whitelist/ban/op management
-- `api-server/src/index.ts` - All player management API endpoints
+### Player Data Not Loading
 
-### 8. Player Data Sources
+1. Verify player is online: `list` command in console
+2. Check RCON connection is working
+3. Verify 10s timeout isn't being hit (slow server)
+4. Check API server logs for parsing errors
 
-Player data is fetched from the server using RCON commands and NBT data parsing:
+### Item Icons Not Displaying
 
-1. **Player List**: `list` command for online players
-2. **Player Data**: NBT file parsing from `world/playerdata/<uuid>.dat`
-3. **Equipment**: Parsed from inventory slots
-4. **Position/Dimension**: From player NBT data
+1. Primary CDN may be down - fallbacks should work
+2. New 1.21+ items may not be in CDN yet
+3. Check browser console for 404 errors on specific items
+
+### Whitelist/Ban Changes Not Persisting
+
+1. These use Minecraft's built-in persistence
+2. Changes are written to `whitelist.json` and `banned-players.json`
+3. Verify server has write permissions to these files
+
+### Op List Always Empty
+
+This is expected - Minecraft has no `op list` command. The frontend tracks ops granted in the current session only. For persistent op management, use server configuration files.
 
 ---
 
