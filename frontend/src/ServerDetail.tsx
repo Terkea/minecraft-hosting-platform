@@ -32,9 +32,10 @@ import {
   stopServer,
   startServer,
   getServerPlayers,
+  getPlayerDetails,
   ServerMetricsResponse,
   PodStatus,
-  PlayersResponse,
+  PlayersListResponse,
   PlayerData,
 } from './api';
 import { PlayerView } from './PlayerView';
@@ -71,7 +72,8 @@ export function ServerDetail({ connected }: ServerDetailProps) {
   const navigate = useNavigate();
 
   // Determine active tab from URL
-  const activeTab: Tab = (tab as Tab) || 'overview';
+  // If playerName is in URL, we're viewing a player so tab should be 'players'
+  const activeTab: Tab = playerName ? 'players' : (tab as Tab) || 'overview';
   const isValidTab = TABS.some((t) => t.id === activeTab);
 
   const [server, setServer] = useState<ServerType | null>(null);
@@ -87,7 +89,7 @@ export function ServerDetail({ connected }: ServerDetailProps) {
   const [copiedAddress, setCopiedAddress] = useState(false);
   const consoleEndRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
-  const [playersData, setPlayersData] = useState<PlayersResponse | null>(null);
+  const [playersData, setPlayersData] = useState<PlayersListResponse | null>(null);
   const [selectedPlayer, setSelectedPlayer] = useState<PlayerData | null>(null);
   const [playersLoading, setPlayersLoading] = useState(false);
   const playersFetchingRef = useRef(false);
@@ -98,17 +100,27 @@ export function ServerDetail({ connected }: ServerDetailProps) {
     selectedPlayerNameRef.current = selectedPlayer?.name || null;
   }, [selectedPlayer]);
 
-  // Handle player selection from URL
+  // Handle player selection from URL - fetch detailed data
   useEffect(() => {
-    if (playerName && playersData?.players) {
-      const player = playersData.players.find((p) => p.name === playerName);
-      if (player) {
-        setSelectedPlayer(player);
-      }
+    if (playerName && serverName) {
+      // Fetch detailed player data when navigating to player view
+      const fetchPlayerDetails = async () => {
+        try {
+          setPlayersLoading(true);
+          const playerData = await getPlayerDetails(serverName, playerName);
+          setSelectedPlayer(playerData);
+        } catch (err) {
+          console.error('Failed to fetch player details:', err);
+          setSelectedPlayer(null);
+        } finally {
+          setPlayersLoading(false);
+        }
+      };
+      void fetchPlayerDetails();
     } else if (!playerName) {
       setSelectedPlayer(null);
     }
-  }, [playerName, playersData]);
+  }, [playerName, serverName]);
 
   // Initial data load
   useEffect(() => {
@@ -116,21 +128,41 @@ export function ServerDetail({ connected }: ServerDetailProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serverName]);
 
-  // Refresh metrics and logs periodically
+  // Refresh metrics and logs periodically (only when not viewing a player detail)
   useEffect(() => {
     const interval = setInterval(() => {
-      void refreshMetrics();
+      // Don't refresh metrics when viewing a player detail page
+      if (!playerName) {
+        void refreshMetrics();
+      }
       if (activeTab === 'console') {
         void refreshLogs();
       }
-      if (activeTab === 'players') {
+      // Only refresh player list when on players tab but not viewing a specific player
+      if (activeTab === 'players' && !playerName) {
         void fetchPlayers();
       }
     }, 3000);
 
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [serverName, activeTab]);
+  }, [serverName, activeTab, playerName]);
+
+  // Refresh player details periodically when viewing a specific player
+  useEffect(() => {
+    if (!playerName || !serverName) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const playerData = await getPlayerDetails(serverName, playerName);
+        setSelectedPlayer(playerData);
+      } catch (err) {
+        console.error('Failed to refresh player details:', err);
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [serverName, playerName]);
 
   // Auto-scroll console
   useEffect(() => {
@@ -230,15 +262,7 @@ export function ServerDetail({ connected }: ServerDetailProps) {
     try {
       const data = await getServerPlayers(serverName);
       setPlayersData(data);
-
-      // Update selected player if one is selected
-      const currentSelectedName = selectedPlayerNameRef.current;
-      if (currentSelectedName) {
-        const updated = data.players.find((p) => p.name === currentSelectedName);
-        if (updated) {
-          setSelectedPlayer(updated);
-        }
-      }
+      // Note: Selected player details are fetched separately via getPlayerDetails
     } catch {
       // Silently fail on refresh
     } finally {
@@ -342,14 +366,27 @@ export function ServerDetail({ connected }: ServerDetailProps) {
     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
   };
 
-  const handlePlayerSelect = (player: PlayerData) => {
-    setSelectedPlayer(player);
-    void navigate(`/servers/${serverName}/players/${player.name}`);
+  const handlePlayerSelect = (playerName: string) => {
+    // Navigate to player page - details will be fetched by useEffect
+    void navigate(`/servers/${serverName}/players/${playerName}`);
   };
 
   const handlePlayerBack = () => {
     setSelectedPlayer(null);
     void navigate(`/servers/${serverName}/players`);
+  };
+
+  const refreshSelectedPlayer = async () => {
+    if (!serverName || !playerName) return;
+    setPlayersLoading(true);
+    try {
+      const playerData = await getPlayerDetails(serverName, playerName);
+      setSelectedPlayer(playerData);
+    } catch (err) {
+      console.error('Failed to refresh player details:', err);
+    } finally {
+      setPlayersLoading(false);
+    }
   };
 
   if (isLoading) {
@@ -734,7 +771,7 @@ export function ServerDetail({ connected }: ServerDetailProps) {
                   player={selectedPlayer}
                   serverName={serverName!}
                   onBack={handlePlayerBack}
-                  onRefresh={() => fetchPlayers(true)}
+                  onRefresh={refreshSelectedPlayer}
                   isLoading={playersLoading}
                 />
               </div>
@@ -784,7 +821,7 @@ export function ServerDetail({ connected }: ServerDetailProps) {
                       {playersData.players.map((player) => (
                         <button
                           key={player.name}
-                          onClick={() => handlePlayerSelect(player)}
+                          onClick={() => handlePlayerSelect(player.name)}
                           className="flex items-center gap-4 p-3 bg-gray-700/50 hover:bg-gray-700 rounded-lg transition-colors text-left w-full"
                         >
                           <img

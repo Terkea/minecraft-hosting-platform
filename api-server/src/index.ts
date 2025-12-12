@@ -783,7 +783,7 @@ app.get('/api/v1/metrics', async (_req: Request, res: Response) => {
   }
 });
 
-// Get online players with detailed data
+// Get online players list (basic info only for performance)
 app.get('/api/v1/servers/:name/players', async (req: Request, res: Response) => {
   try {
     const { name } = req.params;
@@ -839,52 +839,54 @@ app.get('/api/v1/servers/:name/players', async (req: Request, res: Response) => 
       });
     }
 
-    // Check if detailed data is requested (default: true)
-    const detailed = req.query.detailed !== 'false';
+    // Fetch only basic data for list view (name, health, gamemode) - fast
+    const playerPromises = playerNames.map(async (playerName) => {
+      try {
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Timeout')), 5000)
+        );
 
-    let players: any[];
+        // Only fetch health and gamemode for list view
+        const dataPromises = [
+          k8sClient.executeCommand(name, `data get entity ${playerName} Health`),
+          k8sClient.executeCommand(name, `data get entity ${playerName} playerGameType`),
+        ];
 
-    if (detailed && playerNames.length > 0) {
-      // Fetch detailed data for all players in parallel with timeout
-      // Query specific fields separately to avoid truncation of the large NBT output
-      const playerPromises = playerNames.map(async (playerName) => {
-        try {
-          // Add timeout of 10 seconds per player
-          const timeoutPromise = new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error('Timeout')), 10000)
-          );
+        const [healthStr, gameTypeStr] = (await Promise.race([
+          Promise.all(dataPromises),
+          timeoutPromise,
+        ])) as string[];
 
-          // Fetch data in parallel - query specific fields to avoid truncation
-          const dataPromises = [
-            k8sClient.executeCommand(name, `data get entity ${playerName} Health`),
-            k8sClient.executeCommand(name, `data get entity ${playerName} foodLevel`),
-            k8sClient.executeCommand(name, `data get entity ${playerName} Pos`),
-            k8sClient.executeCommand(name, `data get entity ${playerName} Dimension`),
-            k8sClient.executeCommand(name, `data get entity ${playerName} playerGameType`),
-            k8sClient.executeCommand(name, `data get entity ${playerName} Inventory`),
-            k8sClient.executeCommand(name, `data get entity ${playerName} XpLevel`),
-            k8sClient.executeCommand(name, `data get entity ${playerName} SelectedItemSlot`),
-            k8sClient.executeCommand(name, `data get entity ${playerName} equipment`),
-          ];
+        // Parse health
+        const healthMatch = healthStr.match(/([\d.]+)f?$/);
+        const health = healthMatch ? parseFloat(healthMatch[1]) : 20;
 
-          const results = (await Promise.race([
-            Promise.all(dataPromises),
-            timeoutPromise,
-          ])) as string[];
+        // Parse gamemode
+        const gameMatch = gameTypeStr.match(/(\d+)$/);
+        const gameMode = gameMatch ? parseInt(gameMatch[1], 10) : 0;
+        const gameModeName =
+          ['Survival', 'Creative', 'Adventure', 'Spectator'][gameMode] || 'Unknown';
 
-          return parsePlayerDataFromFields(playerName, results);
-        } catch (err) {
-          // Return minimal data if we can't get full data
-          console.error('Error fetching player data for %s:', playerName, err);
-          return getMinimalPlayerData(playerName);
-        }
-      });
+        return {
+          name: playerName,
+          health,
+          maxHealth: 20,
+          gameMode,
+          gameModeName,
+        };
+      } catch (err) {
+        // Return minimal data on error
+        return {
+          name: playerName,
+          health: 20,
+          maxHealth: 20,
+          gameMode: 0,
+          gameModeName: 'Survival',
+        };
+      }
+    });
 
-      players = await Promise.all(playerPromises);
-    } else {
-      // Return minimal data for each player (fast)
-      players = playerNames.map((playerName) => getMinimalPlayerData(playerName));
-    }
+    const players = await Promise.all(playerPromises);
 
     res.json({
       online,
@@ -895,6 +897,83 @@ app.get('/api/v1/servers/:name/players', async (req: Request, res: Response) => 
     console.error('Failed to get players:', error);
     res.status(500).json({
       error: 'players_failed',
+      message: error.message,
+    });
+  }
+});
+
+// Get detailed data for a specific player
+app.get('/api/v1/servers/:name/players/:playerName', async (req: Request, res: Response) => {
+  try {
+    const { name, playerName } = req.params;
+
+    // First check if server exists and is running
+    const server = await k8sClient.getMinecraftServer(name);
+    if (!server) {
+      return res.status(404).json({
+        error: 'not_found',
+        message: `Server '${name}' not found`,
+      });
+    }
+
+    if (server.phase?.toLowerCase() !== 'running') {
+      return res.status(400).json({
+        error: 'server_not_running',
+        message: 'Server is not running',
+      });
+    }
+
+    // Verify player is online
+    const listResult = await k8sClient.executeCommand(name, 'list');
+    const listMatch = listResult.match(
+      /There are (\d+) of a max of (\d+) players online[:\s]*(.*)?/i
+    );
+
+    if (!listMatch || !listMatch[3]) {
+      return res.status(404).json({
+        error: 'player_not_found',
+        message: `Player '${playerName}' is not online`,
+      });
+    }
+
+    const onlinePlayers = listMatch[3]
+      .split(',')
+      .map((n) => n.trim().toLowerCase())
+      .filter((n) => n);
+
+    if (!onlinePlayers.includes(playerName.toLowerCase())) {
+      return res.status(404).json({
+        error: 'player_not_found',
+        message: `Player '${playerName}' is not online`,
+      });
+    }
+
+    // Fetch detailed player data
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Timeout')), 10000)
+    );
+
+    const dataPromises = [
+      k8sClient.executeCommand(name, `data get entity ${playerName} Health`),
+      k8sClient.executeCommand(name, `data get entity ${playerName} foodLevel`),
+      k8sClient.executeCommand(name, `data get entity ${playerName} Pos`),
+      k8sClient.executeCommand(name, `data get entity ${playerName} Dimension`),
+      k8sClient.executeCommand(name, `data get entity ${playerName} playerGameType`),
+      k8sClient.executeCommand(name, `data get entity ${playerName} Inventory`),
+      k8sClient.executeCommand(name, `data get entity ${playerName} XpLevel`),
+      k8sClient.executeCommand(name, `data get entity ${playerName} SelectedItemSlot`),
+      k8sClient.executeCommand(name, `data get entity ${playerName} equipment`),
+    ];
+
+    const results = (await Promise.race([Promise.all(dataPromises), timeoutPromise])) as string[];
+
+    const player = parsePlayerDataFromFields(playerName, results);
+
+    res.json(player);
+  } catch (error: any) {
+    console.error('Failed to get player details:', error);
+    res.status(500).json({
+      error: 'player_details_failed',
       message: error.message,
     });
   }
@@ -925,7 +1004,6 @@ function parsePlayerDataFromFields(playerName: string, results: string[]): any {
       chest: null,
       legs: null,
       feet: null,
-      mainhand: null,
       offhand: null,
     },
     enderItems: [],
@@ -989,50 +1067,74 @@ function parsePlayerDataFromFields(playerName: string, results: string[]): any {
     const slotMatch = slotStr.match(/(\d+)$/);
     if (slotMatch) player.selectedSlot = parseInt(slotMatch[1], 10);
 
-    // Parse equipment - format: "Player has the following entity data: {head: {...}, chest: {...}, ...}"
+    // Parse equipment from the equipment command response
+    // Format: "Player has the following entity data: {head: {components: {...}, count: 1, id: "..."}, ...}"
     if (equipStr) {
-      // Parse head slot
-      const headMatch = equipStr.match(/head:\s*\{([^}]+)\}/);
-      if (headMatch) {
-        const idMatch = headMatch[1].match(/id:\s*"([^"]+)"/);
-        if (idMatch) player.equipment.head = { id: idMatch[1], count: 1 };
-      }
+      const parseEquipSlot = (slotName: string): any | null => {
+        // Find the start of this slot's data
+        const slotPattern = new RegExp(`${slotName}:\\s*\\{`);
+        const slotMatch = slotPattern.exec(equipStr);
+        if (!slotMatch) return null;
 
-      // Parse chest slot
-      const chestMatch = equipStr.match(/chest:\s*\{([^}]+)\}/);
-      if (chestMatch) {
-        const idMatch = chestMatch[1].match(/id:\s*"([^"]+)"/);
-        if (idMatch) player.equipment.chest = { id: idMatch[1], count: 1 };
-      }
+        // Find matching closing brace using depth tracking
+        const startIdx = slotMatch.index + slotMatch[0].length;
+        let depth = 1;
+        let endIdx = startIdx;
 
-      // Parse legs slot
-      const legsMatch = equipStr.match(/legs:\s*\{([^}]+)\}/);
-      if (legsMatch) {
-        const idMatch = legsMatch[1].match(/id:\s*"([^"]+)"/);
-        if (idMatch) player.equipment.legs = { id: idMatch[1], count: 1 };
-      }
+        for (let i = startIdx; i < equipStr.length && depth > 0; i++) {
+          if (equipStr[i] === '{') depth++;
+          else if (equipStr[i] === '}') depth--;
+          endIdx = i;
+        }
 
-      // Parse feet slot
-      const feetMatch = equipStr.match(/feet:\s*\{([^}]+)\}/);
-      if (feetMatch) {
-        const idMatch = feetMatch[1].match(/id:\s*"([^"]+)"/);
-        if (idMatch) player.equipment.feet = { id: idMatch[1], count: 1 };
-      }
+        const slotStr = equipStr.slice(startIdx, endIdx);
 
-      // Parse mainhand slot
-      const mainhandMatch = equipStr.match(/mainhand:\s*\{([^}]+)\}/);
-      if (mainhandMatch) {
-        const idMatch = mainhandMatch[1].match(/id:\s*"([^"]+)"/);
-        if (idMatch) player.equipment.mainhand = { id: idMatch[1], count: 1 };
-      }
+        // Extract item ID
+        const idMatch = slotStr.match(/id:\s*"([^"]+)"/);
+        if (!idMatch) return null;
 
-      // Parse offhand slot
-      const offhandMatch = equipStr.match(/offhand:\s*\{([^}]+)\}/);
-      if (offhandMatch) {
-        const idMatch = offhandMatch[1].match(/id:\s*"([^"]+)"/);
-        if (idMatch) player.equipment.offhand = { id: idMatch[1], count: 1 };
-      }
+        const item: any = {
+          id: idMatch[1],
+          count: 1,
+        };
+
+        // Extract count
+        const countMatch = slotStr.match(/count:\s*(\d+)/);
+        if (countMatch) item.count = parseInt(countMatch[1], 10);
+
+        // Extract custom name
+        const customNameMatch = slotStr.match(/"minecraft:custom_name":\s*"([^"]+)"/);
+        if (customNameMatch) item.customName = customNameMatch[1];
+
+        // Extract damage
+        const damageMatch = slotStr.match(/"minecraft:damage":\s*(\d+)/);
+        if (damageMatch) item.damage = parseInt(damageMatch[1], 10);
+
+        // Extract enchantments
+        const enchantMatch = slotStr.match(/"minecraft:enchantments":\s*\{([^}]+)\}/);
+        if (enchantMatch) {
+          const enchantments: Record<string, number> = {};
+          const enchantPairs = enchantMatch[1].matchAll(/"minecraft:([^"]+)":\s*(\d+)/g);
+          for (const [, enchantName, level] of enchantPairs) {
+            enchantments[enchantName] = parseInt(level, 10);
+          }
+          if (Object.keys(enchantments).length > 0) {
+            item.enchantments = enchantments;
+          }
+        }
+
+        return item;
+      };
+
+      player.equipment.head = parseEquipSlot('head');
+      player.equipment.chest = parseEquipSlot('chest');
+      player.equipment.legs = parseEquipSlot('legs');
+      player.equipment.feet = parseEquipSlot('feet');
+      player.equipment.offhand = parseEquipSlot('offhand');
     }
+
+    // Filter out equipment slots from main inventory (keep only slots 0-35)
+    player.inventory = player.inventory.filter((item: any) => item.slot >= 0 && item.slot <= 35);
   } catch (parseError) {
     console.error('Error parsing player field data:', parseError);
   }
@@ -1065,7 +1167,6 @@ function getMinimalPlayerData(playerName: string): any {
       chest: null,
       legs: null,
       feet: null,
-      mainhand: null,
       offhand: null,
     },
     enderItems: [],
@@ -1294,11 +1395,46 @@ function parseInventoryItem(itemStr: string): any | null {
   const countMatch = itemStr.match(/(?:count|Count):\s*(\d+)/);
   const count = countMatch ? parseInt(countMatch[1], 10) : 1;
 
-  return {
+  const item: any = {
     slot: parseInt(slotMatch[1], 10),
     id: idMatch[1],
     count,
   };
+
+  // Parse components (enchantments, custom_name, damage)
+  // Format: components: {"minecraft:enchantments": {...}, "minecraft:custom_name": "...", "minecraft:damage": N}
+
+  // Extract custom name
+  const customNameMatch = itemStr.match(/"minecraft:custom_name":\s*"([^"]+)"/);
+  if (customNameMatch) {
+    item.customName = customNameMatch[1];
+  }
+
+  // Extract damage (durability loss)
+  const damageMatch = itemStr.match(/"minecraft:damage":\s*(\d+)/);
+  if (damageMatch) {
+    item.damage = parseInt(damageMatch[1], 10);
+  }
+
+  // Extract enchantments
+  // Format: "minecraft:enchantments": {"minecraft:protection": 4, "minecraft:unbreaking": 3}
+  const enchantMatch = itemStr.match(/"minecraft:enchantments":\s*\{([^}]+)\}/);
+  if (enchantMatch) {
+    const enchantStr = enchantMatch[1];
+    const enchantments: Record<string, number> = {};
+
+    // Match all enchantment:level pairs
+    const enchantPairs = enchantStr.matchAll(/"minecraft:([^"]+)":\s*(\d+)/g);
+    for (const [, enchantName, level] of enchantPairs) {
+      enchantments[enchantName] = parseInt(level, 10);
+    }
+
+    if (Object.keys(enchantments).length > 0) {
+      item.enchantments = enchantments;
+    }
+  }
+
+  return item;
 }
 
 // ==================== PLAYER MANAGEMENT ENDPOINTS ====================

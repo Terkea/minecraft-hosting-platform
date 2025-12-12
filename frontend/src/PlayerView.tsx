@@ -54,26 +54,45 @@ const getItemIconUrl = (itemId: string): string => {
 // Alternative URLs to try if primary fails
 const getAlternativeIconUrls = (itemId: string): string[] => {
   const cleanId = itemId.replace('minecraft:', '');
+  // Convert snake_case to Title_Case for wiki (e.g., ominous_bottle -> Ominous_Bottle)
+  const wikiName = cleanId
+    .split('_')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join('_');
   return [
     `https://minecraft-api.vercel.app/images/blocks/${cleanId}.png`,
     `https://mc.nerothe.com/img/1.21.1/${cleanId}.png`,
+    // Minecraft Wiki direct image URLs (official wiki, has 1.21+ items)
+    `https://minecraft.wiki/images/${wikiName}_JE1_BE1.png`,
+    `https://minecraft.wiki/images/${wikiName}_JE1.png`,
+    `https://minecraft.wiki/images/${wikiName}_JE2_BE2.png`,
+    `https://minecraft.wiki/images/${wikiName}_JE3_BE3.png`,
+    `https://minecraft.wiki/images/${wikiName}.png`,
+    // Fandom/Wikia CDN (alternative source)
+    `https://static.wikia.nocookie.net/minecraft_gamepedia/images/${wikiName}_JE1_BE1.png`,
+    // GitHub minecraft-assets
+    `https://raw.githubusercontent.com/InventivetalentDev/minecraft-assets/1.21/assets/minecraft/textures/item/${cleanId}.png`,
     `https://raw.githubusercontent.com/InventivetalentDev/minecraft-assets/1.20.4/assets/minecraft/textures/item/${cleanId}.png`,
     `https://raw.githubusercontent.com/InventivetalentDev/minecraft-assets/1.20.4/assets/minecraft/textures/block/${cleanId}.png`,
   ];
 };
 
+// Cache for failed item IDs to avoid retrying on every render
+const failedItemCache = new Set<string>();
+
 // Item icon component with multiple fallback URLs
 const ItemIcon = ({ itemId, size = 32 }: { itemId: string; size?: number }) => {
-  const [urlIndex, setUrlIndex] = useState(0);
-  const [allFailed, setAllFailed] = useState(false);
   const cleanId = itemId.replace('minecraft:', '');
+  const [urlIndex, setUrlIndex] = useState(0);
+  const [allFailed, setAllFailed] = useState(failedItemCache.has(cleanId));
 
   const allUrls = [getItemIconUrl(itemId), ...getAlternativeIconUrls(itemId)];
 
   const handleError = () => {
     if (urlIndex < allUrls.length - 1) {
-      setUrlIndex(urlIndex + 1);
+      setUrlIndex((prev) => prev + 1);
     } else {
+      failedItemCache.add(cleanId);
       setAllFailed(true);
     }
   };
@@ -111,6 +130,169 @@ const ItemIcon = ({ itemId, size = 32 }: { itemId: string; size?: number }) => {
   );
 };
 
+// Format item name with Title Case
+const formatItemName = (id: string): string => {
+  return id
+    .replace('minecraft:', '')
+    .replace(/_/g, ' ')
+    .split(' ')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+};
+
+// Format enchantment name with Title Case
+const formatEnchantName = (name: string): string => {
+  return name
+    .replace(/_/g, ' ')
+    .split(' ')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+};
+
+// Get max durability for common items
+const getMaxDurability = (itemId: string): number => {
+  const durabilities: Record<string, number> = {
+    'minecraft:diamond_helmet': 363,
+    'minecraft:diamond_chestplate': 528,
+    'minecraft:diamond_leggings': 495,
+    'minecraft:diamond_boots': 429,
+    'minecraft:diamond_sword': 1561,
+    'minecraft:diamond_pickaxe': 1561,
+    'minecraft:diamond_axe': 1561,
+    'minecraft:diamond_shovel': 1561,
+    'minecraft:diamond_hoe': 1561,
+    'minecraft:netherite_helmet': 407,
+    'minecraft:netherite_chestplate': 592,
+    'minecraft:netherite_leggings': 555,
+    'minecraft:netherite_boots': 481,
+    'minecraft:netherite_sword': 2031,
+    'minecraft:netherite_pickaxe': 2031,
+    'minecraft:netherite_axe': 2031,
+    'minecraft:netherite_shovel': 2031,
+    'minecraft:netherite_hoe': 2031,
+    'minecraft:iron_helmet': 165,
+    'minecraft:iron_chestplate': 240,
+    'minecraft:iron_leggings': 225,
+    'minecraft:iron_boots': 195,
+    'minecraft:iron_sword': 250,
+    'minecraft:iron_pickaxe': 250,
+    'minecraft:iron_axe': 250,
+    'minecraft:iron_shovel': 250,
+    'minecraft:iron_hoe': 250,
+    'minecraft:golden_helmet': 77,
+    'minecraft:golden_chestplate': 112,
+    'minecraft:golden_leggings': 105,
+    'minecraft:golden_boots': 91,
+    'minecraft:leather_helmet': 55,
+    'minecraft:leather_chestplate': 80,
+    'minecraft:leather_leggings': 75,
+    'minecraft:leather_boots': 65,
+    'minecraft:chainmail_helmet': 165,
+    'minecraft:chainmail_chestplate': 240,
+    'minecraft:chainmail_leggings': 225,
+    'minecraft:chainmail_boots': 195,
+    'minecraft:bow': 384,
+    'minecraft:crossbow': 465,
+    'minecraft:shield': 336,
+    'minecraft:elytra': 432,
+    'minecraft:trident': 250,
+    'minecraft:fishing_rod': 64,
+    'minecraft:flint_and_steel': 64,
+    'minecraft:shears': 238,
+  };
+  return durabilities[itemId] || 0;
+};
+
+// Item tooltip component
+const ItemTooltip = ({
+  item,
+  showSlot,
+  slotNumber,
+}: {
+  item: MinecraftItem | EquipmentItem;
+  showSlot?: boolean;
+  slotNumber?: number;
+}) => {
+  const maxDurability = getMaxDurability(item.id);
+  const currentDurability =
+    maxDurability > 0 && item.damage !== undefined ? maxDurability - item.damage : null;
+  const durabilityPercent =
+    currentDurability !== null ? (currentDurability / maxDurability) * 100 : null;
+
+  return (
+    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1.5 bg-gray-900 border border-gray-600 rounded text-xs text-white whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-10 pointer-events-none min-w-[120px]">
+      {/* Custom name or item name */}
+      {item.customName ? (
+        <>
+          <div className="font-medium text-purple-400 italic">{item.customName}</div>
+          <div className="text-gray-500 text-[10px]">{formatItemName(item.id)}</div>
+        </>
+      ) : (
+        <div className="font-medium text-white">{formatItemName(item.id)}</div>
+      )}
+
+      {/* Enchantments */}
+      {item.enchantments && Object.keys(item.enchantments).length > 0 && (
+        <div className="mt-1 space-y-0.5">
+          {Object.entries(item.enchantments).map(([name, level]) => (
+            <div key={name} className="text-cyan-400">
+              {formatEnchantName(name)} {level > 1 ? toRoman(level) : ''}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Durability bar */}
+      {durabilityPercent !== null && (
+        <div className="mt-1">
+          <div className="flex items-center gap-1">
+            <div className="flex-1 h-1 bg-gray-700 rounded overflow-hidden">
+              <div
+                className={`h-full transition-all ${
+                  durabilityPercent > 50
+                    ? 'bg-green-500'
+                    : durabilityPercent > 25
+                      ? 'bg-yellow-500'
+                      : 'bg-red-500'
+                }`}
+                style={{ width: `${durabilityPercent}%` }}
+              />
+            </div>
+            <span className="text-[10px] text-gray-400">
+              {currentDurability}/{maxDurability}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Count and slot */}
+      <div className="mt-1 text-gray-400 flex justify-between">
+        <span>x{item.count}</span>
+        {showSlot && slotNumber !== undefined && <span>Slot {slotNumber}</span>}
+      </div>
+    </div>
+  );
+};
+
+// Convert number to Roman numerals (for enchantment levels)
+const toRoman = (num: number): string => {
+  const romanNumerals: [number, string][] = [
+    [10, 'X'],
+    [9, 'IX'],
+    [5, 'V'],
+    [4, 'IV'],
+    [1, 'I'],
+  ];
+  let result = '';
+  for (const [value, numeral] of romanNumerals) {
+    while (num >= value) {
+      result += numeral;
+      num -= value;
+    }
+  }
+  return result;
+};
+
 // Equipment slot component (for armor/held items)
 const EquipmentSlot = ({
   item,
@@ -123,20 +305,46 @@ const EquipmentSlot = ({
 }) => {
   const slotSize = size === 'large' ? 'w-14 h-14' : 'w-11 h-11';
   const iconSize = size === 'large' ? 40 : 32;
+  const hasEnchantments = item?.enchantments && Object.keys(item.enchantments).length > 0;
+  const maxDurability = item ? getMaxDurability(item.id) : 0;
+  const durabilityPercent =
+    maxDurability > 0 && item?.damage !== undefined
+      ? ((maxDurability - item.damage) / maxDurability) * 100
+      : null;
 
   return (
     <div className="flex items-center gap-2">
       <div
-        className={`${slotSize} relative bg-gray-800/80 border-2 border-gray-600 rounded flex items-center justify-center group`}
-        title={item ? `${item.id.replace('minecraft:', '')} x${item.count}` : `Empty ${label}`}
+        className={`${slotSize} relative bg-gray-800/80 border-2 ${
+          hasEnchantments ? 'border-purple-500/50' : 'border-gray-600'
+        } rounded flex items-center justify-center group`}
       >
         {item ? (
           <>
             <ItemIcon itemId={item.id} size={iconSize} />
+            {/* Enchantment glow effect */}
+            {hasEnchantments && (
+              <div className="absolute inset-0 bg-purple-500/10 animate-pulse rounded" />
+            )}
             {item.count > 1 && (
               <span className="absolute bottom-0 right-0.5 text-[10px] font-bold text-white drop-shadow-[0_1px_1px_rgba(0,0,0,1)]">
                 {item.count}
               </span>
+            )}
+            {/* Durability bar */}
+            {durabilityPercent !== null && durabilityPercent < 100 && (
+              <div className="absolute bottom-0.5 left-0.5 right-0.5 h-0.5 bg-gray-700 rounded overflow-hidden">
+                <div
+                  className={`h-full ${
+                    durabilityPercent > 50
+                      ? 'bg-green-500'
+                      : durabilityPercent > 25
+                        ? 'bg-yellow-500'
+                        : 'bg-red-500'
+                  }`}
+                  style={{ width: `${durabilityPercent}%` }}
+                />
+              </div>
             )}
           </>
         ) : (
@@ -144,14 +352,7 @@ const EquipmentSlot = ({
         )}
 
         {/* Hover tooltip */}
-        {item && (
-          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 border border-gray-600 rounded text-xs text-white whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-10 pointer-events-none">
-            <div className="font-medium text-green-400">
-              {item.id.replace('minecraft:', '').replace(/_/g, ' ')}
-            </div>
-            <div className="text-gray-400">x{item.count}</div>
-          </div>
-        )}
+        {item && <ItemTooltip item={item} />}
       </div>
       <span className="text-xs text-gray-500">{label}</span>
     </div>
@@ -172,25 +373,49 @@ const InventorySlot = ({
 }) => {
   const slotSize = size === 'large' ? 'w-14 h-14' : 'w-11 h-11';
   const iconSize = size === 'large' ? 40 : 32;
+  const hasEnchantments = item?.enchantments && Object.keys(item.enchantments).length > 0;
+  const maxDurability = item ? getMaxDurability(item.id) : 0;
+  const durabilityPercent =
+    maxDurability > 0 && item?.damage !== undefined
+      ? ((maxDurability - item.damage) / maxDurability) * 100
+      : null;
 
   return (
     <div
       className={`${slotSize} relative bg-gray-800/80 border-2 ${
-        isSelected ? 'border-yellow-500' : 'border-gray-600'
+        isSelected
+          ? 'border-yellow-500'
+          : hasEnchantments
+            ? 'border-purple-500/50'
+            : 'border-gray-600'
       } rounded flex items-center justify-center group`}
-      title={
-        item
-          ? `${item.id.replace('minecraft:', '')} x${item.count} (Slot ${slotNumber})`
-          : `Empty (Slot ${slotNumber})`
-      }
     >
       {item ? (
         <>
           <ItemIcon itemId={item.id} size={iconSize} />
+          {/* Enchantment glow effect */}
+          {hasEnchantments && (
+            <div className="absolute inset-0 bg-purple-500/10 animate-pulse rounded" />
+          )}
           {item.count > 1 && (
             <span className="absolute bottom-0 right-0.5 text-[10px] font-bold text-white drop-shadow-[0_1px_1px_rgba(0,0,0,1)]">
               {item.count}
             </span>
+          )}
+          {/* Durability bar */}
+          {durabilityPercent !== null && durabilityPercent < 100 && (
+            <div className="absolute bottom-0.5 left-0.5 right-0.5 h-0.5 bg-gray-700 rounded overflow-hidden">
+              <div
+                className={`h-full ${
+                  durabilityPercent > 50
+                    ? 'bg-green-500'
+                    : durabilityPercent > 25
+                      ? 'bg-yellow-500'
+                      : 'bg-red-500'
+                }`}
+                style={{ width: `${durabilityPercent}%` }}
+              />
+            </div>
           )}
         </>
       ) : (
@@ -198,14 +423,7 @@ const InventorySlot = ({
       )}
 
       {/* Hover tooltip */}
-      {item && (
-        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 border border-gray-600 rounded text-xs text-white whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-10 pointer-events-none">
-          <div className="font-medium text-green-400">
-            {item.id.replace('minecraft:', '').replace(/_/g, ' ')}
-          </div>
-          <div className="text-gray-400">x{item.count}</div>
-        </div>
-      )}
+      {item && <ItemTooltip item={item} showSlot slotNumber={slotNumber} />}
     </div>
   );
 };
@@ -864,9 +1082,8 @@ export function PlayerView({ player, serverName, onBack, onRefresh, isLoading }:
                 <EquipmentSlot item={player.equipment?.feet} label="Boots" />
               </div>
 
-              {/* Held items */}
+              {/* Offhand */}
               <div className="pt-2 border-t border-gray-700 space-y-1">
-                <EquipmentSlot item={player.equipment?.mainhand} label="Mainhand" />
                 <EquipmentSlot item={player.equipment?.offhand} label="Offhand" />
               </div>
             </div>

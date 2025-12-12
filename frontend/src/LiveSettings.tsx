@@ -207,19 +207,19 @@ export function LiveSettings({ serverName, isRunning }: LiveSettingsProps) {
     setLoadingGamerules(false);
   };
 
-  const showSuccess = (title: string, description?: string) => {
+  const showSuccess = (notifTitle: string, notifDescription?: string) => {
     api.success({
-      message: title,
-      description,
+      message: notifTitle,
+      description: notifDescription,
       placement: 'topRight',
       duration: 3,
     });
   };
 
-  const showError = (title: string, description?: string) => {
+  const showError = (notifTitle: string, notifDescription?: string) => {
     api.error({
-      message: title,
-      description,
+      message: notifTitle,
+      description: notifDescription,
       placement: 'topRight',
       duration: 5,
     });

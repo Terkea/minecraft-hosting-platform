@@ -139,11 +139,17 @@ export interface MinecraftItem {
   id: string;
   count: number;
   slot: number;
+  customName?: string;
+  damage?: number;
+  enchantments?: Record<string, number>;
 }
 
 export interface EquipmentItem {
   id: string;
   count: number;
+  customName?: string;
+  damage?: number;
+  enchantments?: Record<string, number>;
 }
 
 export interface PlayerEquipment {
@@ -151,7 +157,6 @@ export interface PlayerEquipment {
   chest: EquipmentItem | null;
   legs: EquipmentItem | null;
   feet: EquipmentItem | null;
-  mainhand: EquipmentItem | null;
   offhand: EquipmentItem | null;
 }
 
@@ -199,10 +204,40 @@ export interface PlayersResponse {
   players: PlayerData[];
 }
 
-export async function getServerPlayers(name: string): Promise<PlayersResponse> {
+// Basic player info for list view
+export interface PlayerSummary {
+  name: string;
+  health: number;
+  maxHealth: number;
+  gameMode: number;
+  gameModeName: string;
+}
+
+export interface PlayersListResponse {
+  online: number;
+  max: number;
+  players: PlayerSummary[];
+}
+
+// Get list of online players (basic info only)
+export async function getServerPlayers(name: string): Promise<PlayersListResponse> {
   const response = await fetch(`${API_BASE}/servers/${name}/players`);
   if (!response.ok) {
     throw new Error('Failed to fetch players');
+  }
+  return response.json();
+}
+
+// Get detailed data for a specific player
+export async function getPlayerDetails(
+  serverName: string,
+  playerName: string
+): Promise<PlayerData> {
+  const response = await fetch(
+    `${API_BASE}/servers/${serverName}/players/${encodeURIComponent(playerName)}`
+  );
+  if (!response.ok) {
+    throw new Error('Failed to fetch player details');
   }
   return response.json();
 }
