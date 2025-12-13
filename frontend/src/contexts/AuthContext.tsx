@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
+import { storeTokens, clearTokens, getAccessToken, getRefreshToken } from '../api';
 
 /**
  * User data returned from the API
@@ -27,15 +28,13 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const TOKEN_KEY = 'auth_token';
-
 interface AuthProviderProps {
   children: ReactNode;
 }
 
 export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem(TOKEN_KEY));
+  const [token, setToken] = useState<string | null>(() => getAccessToken());
   const [loading, setLoading] = useState(true);
 
   /**
@@ -54,9 +53,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setUser(userData);
         return true;
       } else {
-        // Token invalid - clear it
+        // Token invalid - clear all tokens
         console.warn('[Auth] Token invalid, clearing');
-        localStorage.removeItem(TOKEN_KEY);
+        clearTokens();
         setToken(null);
         setUser(null);
         return false;
@@ -68,21 +67,27 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, []);
 
   /**
-   * Handle OAuth callback - extract token from URL
+   * Handle OAuth callback - extract tokens from URL
    */
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
-    const callbackToken = urlParams.get('token');
+    const accessToken = urlParams.get('accessToken');
+    const refreshToken = urlParams.get('refreshToken');
+    const expiresIn = urlParams.get('expiresIn');
     const error = urlParams.get('error');
 
     if (error) {
       console.error('[Auth] OAuth error:', error);
       // Clean URL
       window.history.replaceState({}, '', window.location.pathname);
-    } else if (callbackToken) {
-      console.log('[Auth] Received token from OAuth callback');
-      localStorage.setItem(TOKEN_KEY, callbackToken);
-      setToken(callbackToken);
+    } else if (accessToken && refreshToken && expiresIn) {
+      console.log('[Auth] Received token pair from OAuth callback');
+      storeTokens({
+        accessToken,
+        refreshToken,
+        expiresIn: parseInt(expiresIn, 10),
+      });
+      setToken(accessToken);
       // Clean URL
       window.history.replaceState({}, '', window.location.pathname);
     }
@@ -111,7 +116,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, []);
 
   /**
-   * Logout - clear token and notify backend
+   * Logout - clear tokens and notify backend
    */
   const logout = useCallback(async () => {
     if (token) {
@@ -127,7 +132,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
     }
 
-    localStorage.removeItem(TOKEN_KEY);
+    clearTokens();
     setToken(null);
     setUser(null);
   }, [token]);
@@ -167,7 +172,6 @@ export function useAuth(): AuthContextType {
 
 /**
  * Get the auth token (for use in API calls)
+ * @deprecated Use api.ts functions instead which handle token refresh
  */
-export function getAuthToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
-}
+export { getAccessToken as getAuthToken } from '../api';

@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import { userStore, User } from '../models/user.js';
+import { refreshTokenStore } from '../models/refresh-token-store.js';
 
 /**
  * Extended Express Request with authenticated user
@@ -11,27 +13,123 @@ export interface AuthenticatedRequest extends Request {
 }
 
 /**
- * JWT payload structure
+ * JWT payload structure for access tokens
  */
 export interface JwtPayload {
   userId: string;
   email: string;
+  type: 'access';
   iat: number;
   exp: number;
 }
 
 /**
- * Generate a JWT token for an authenticated user
+ * Token pair returned after authentication
  */
-export function generateToken(user: User): string {
+export interface TokenPair {
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number; // seconds until access token expires
+}
+
+// Token expiration times
+const ACCESS_TOKEN_EXPIRY = '15m'; // 15 minutes
+const ACCESS_TOKEN_EXPIRY_SECONDS = 15 * 60;
+const REFRESH_TOKEN_EXPIRY_DAYS = 7;
+
+/**
+ * Generate an access token (short-lived JWT)
+ */
+export function generateAccessToken(user: User): string {
   const secret = process.env.JWT_SECRET;
   if (!secret) {
     throw new Error('JWT_SECRET environment variable is not set');
   }
 
-  return jwt.sign({ userId: user.id, email: user.email }, secret, {
-    expiresIn: '7d',
+  return jwt.sign({ userId: user.id, email: user.email, type: 'access' }, secret, {
+    expiresIn: ACCESS_TOKEN_EXPIRY,
   });
+}
+
+/**
+ * Generate a refresh token (stored in database)
+ */
+export async function generateRefreshToken(userId: string): Promise<string> {
+  // Generate a cryptographically secure random token
+  const token = crypto.randomBytes(64).toString('hex');
+
+  // Store in database with expiry
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + REFRESH_TOKEN_EXPIRY_DAYS);
+
+  await refreshTokenStore.createToken({
+    userId,
+    token,
+    expiresAt,
+  });
+
+  return token;
+}
+
+/**
+ * Generate both access and refresh tokens for a user
+ */
+export async function generateTokenPair(user: User): Promise<TokenPair> {
+  const accessToken = generateAccessToken(user);
+  const refreshToken = await generateRefreshToken(user.id);
+
+  return {
+    accessToken,
+    refreshToken,
+    expiresIn: ACCESS_TOKEN_EXPIRY_SECONDS,
+  };
+}
+
+/**
+ * Refresh tokens - validate refresh token and issue new token pair
+ * Implements token rotation: old refresh token is invalidated
+ */
+export async function refreshTokens(refreshToken: string): Promise<TokenPair | null> {
+  // Validate the refresh token
+  const storedToken = await refreshTokenStore.getToken(refreshToken);
+
+  if (!storedToken) {
+    return null; // Token not found or already used
+  }
+
+  // Check if expired
+  if (new Date() > storedToken.expiresAt) {
+    await refreshTokenStore.deleteToken(refreshToken);
+    return null;
+  }
+
+  // Get the user
+  const user = await userStore.getUserById(storedToken.userId);
+  if (!user) {
+    await refreshTokenStore.deleteToken(refreshToken);
+    return null;
+  }
+
+  // Delete the old refresh token (rotation)
+  await refreshTokenStore.deleteToken(refreshToken);
+
+  // Generate new token pair
+  return generateTokenPair(user);
+}
+
+/**
+ * Revoke all refresh tokens for a user (logout from all devices)
+ */
+export async function revokeAllUserTokens(userId: string): Promise<void> {
+  await refreshTokenStore.deleteAllUserTokens(userId);
+}
+
+/**
+ * Legacy function for backward compatibility
+ * @deprecated Use generateTokenPair instead
+ */
+export function generateToken(user: User): string {
+  return generateAccessToken(user);
 }
 
 /**

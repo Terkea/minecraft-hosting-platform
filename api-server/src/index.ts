@@ -16,10 +16,13 @@ import { closePool } from './db/connection.js';
 import {
   requireAuth,
   optionalAuth,
-  generateToken,
+  generateTokenPair,
+  refreshTokens,
+  revokeAllUserTokens,
   verifyToken,
   AuthenticatedRequest,
 } from './middleware/auth.js';
+import { refreshTokenStore } from './models/refresh-token-store.js';
 
 const app = express();
 const server = createServer(app);
@@ -255,11 +258,16 @@ app.get('/api/v1/auth/google/callback', async (req: Request, res: Response) => {
       console.log(`[Auth] Updated tokens for user: ${user.email}`);
     }
 
-    // Generate JWT for session
-    const jwtToken = generateToken(user);
+    // Generate token pair (short-lived access token + refresh token)
+    const tokenPair = await generateTokenPair(user);
 
-    // Redirect to frontend with token
-    res.redirect(`${FRONTEND_URL}/auth/callback?token=${jwtToken}`);
+    // Redirect to frontend with both tokens
+    const params = new URLSearchParams({
+      accessToken: tokenPair.accessToken,
+      refreshToken: tokenPair.refreshToken,
+      expiresIn: tokenPair.expiresIn.toString(),
+    });
+    res.redirect(`${FRONTEND_URL}/auth/callback?${params.toString()}`);
   } catch (error: any) {
     console.error('[Auth] OAuth callback error:', error.message);
     res.redirect(`${FRONTEND_URL}/login?error=${encodeURIComponent(error.message)}`);
@@ -279,10 +287,56 @@ app.get('/api/v1/auth/me', requireAuth, (req: AuthenticatedRequest, res: Respons
   });
 });
 
-// Logout (client-side token removal, but we log it)
-app.post('/api/v1/auth/logout', requireAuth, (req: AuthenticatedRequest, res: Response) => {
-  console.log(`[Auth] User logged out: ${req.user!.email}`);
-  res.json({ message: 'Logged out successfully' });
+// Refresh access token using refresh token
+app.post('/api/v1/auth/refresh', async (req: Request, res: Response) => {
+  const { refreshToken } = req.body;
+
+  if (!refreshToken || typeof refreshToken !== 'string') {
+    return res.status(400).json({
+      error: 'invalid_request',
+      message: 'Refresh token is required',
+    });
+  }
+
+  try {
+    const tokenPair = await refreshTokens(refreshToken);
+
+    if (!tokenPair) {
+      return res.status(401).json({
+        error: 'invalid_refresh_token',
+        message: 'Refresh token is invalid or expired. Please sign in again.',
+      });
+    }
+
+    console.log('[Auth] Token refreshed successfully');
+    res.json({
+      accessToken: tokenPair.accessToken,
+      refreshToken: tokenPair.refreshToken,
+      expiresIn: tokenPair.expiresIn,
+    });
+  } catch (error: any) {
+    console.error('[Auth] Token refresh error:', error.message);
+    res.status(500).json({
+      error: 'server_error',
+      message: 'Failed to refresh token',
+    });
+  }
+});
+
+// Logout - revoke all refresh tokens for the user
+app.post('/api/v1/auth/logout', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const user = req.user!;
+
+  try {
+    // Revoke all refresh tokens for this user (logout from all devices)
+    await revokeAllUserTokens(user.id);
+    console.log(`[Auth] User logged out, all tokens revoked: ${user.email}`);
+    res.json({ message: 'Logged out successfully' });
+  } catch (error: any) {
+    console.error('[Auth] Logout error:', error.message);
+    // Still return success - client will clear local tokens anyway
+    res.json({ message: 'Logged out successfully' });
+  }
 });
 
 // Get Google Drive connection status
@@ -2847,6 +2901,7 @@ async function start() {
   // Initialize database connection
   try {
     await userStore.initialize();
+    await refreshTokenStore.initialize();
     console.log('[Startup] Database connection established');
   } catch (error) {
     console.error('[Startup] Failed to connect to database:', error);

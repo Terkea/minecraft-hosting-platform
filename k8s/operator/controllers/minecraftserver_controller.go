@@ -465,7 +465,7 @@ func (r *MinecraftServerReconciler) buildPodSpec(server *minecraftv1.MinecraftSe
 							Port: intstr.FromInt(25565),
 						},
 					},
-					InitialDelaySeconds: 60,
+					InitialDelaySeconds: 30,
 					PeriodSeconds:       10,
 					TimeoutSeconds:      5,
 					FailureThreshold:    6, // Give more time for initial startup

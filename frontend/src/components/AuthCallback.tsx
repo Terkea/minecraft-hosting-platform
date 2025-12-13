@@ -1,18 +1,19 @@
 import { useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
-
-const TOKEN_KEY = 'auth_token';
+import { storeTokens } from '../api';
 
 /**
- * Handles OAuth callback - extracts token from URL and redirects
+ * Handles OAuth callback - extracts tokens from URL and redirects
  */
 export function AuthCallback() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
   useEffect(() => {
-    const token = searchParams.get('token');
+    const accessToken = searchParams.get('accessToken');
+    const refreshToken = searchParams.get('refreshToken');
+    const expiresIn = searchParams.get('expiresIn');
     const error = searchParams.get('error');
 
     if (error) {
@@ -21,15 +22,19 @@ export function AuthCallback() {
       return;
     }
 
-    if (token) {
-      console.log('[AuthCallback] Storing token and redirecting to home');
-      localStorage.setItem(TOKEN_KEY, token);
-      // Small delay to ensure token is stored before redirect
+    if (accessToken && refreshToken && expiresIn) {
+      console.log('[AuthCallback] Storing tokens and redirecting to home');
+      storeTokens({
+        accessToken,
+        refreshToken,
+        expiresIn: parseInt(expiresIn, 10),
+      });
+      // Small delay to ensure tokens are stored before redirect
       setTimeout(() => {
         navigate('/', { replace: true });
       }, 100);
     } else {
-      console.error('[AuthCallback] No token in callback URL');
+      console.error('[AuthCallback] Missing tokens in callback URL');
       navigate('/login?error=no_token', { replace: true });
     }
   }, [searchParams, navigate]);
