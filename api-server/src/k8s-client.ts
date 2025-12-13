@@ -1,6 +1,12 @@
 import * as k8s from '@kubernetes/client-node';
 import { Writable, PassThrough } from 'stream';
+import { randomBytes } from 'crypto';
 import { rconPool } from './utils/rcon-pool.js';
+
+// Generate a secure random RCON password (24 characters)
+function generateRconPassword(): string {
+  return randomBytes(18).toString('base64').replace(/[+/=]/g, 'x');
+}
 
 // MinecraftServer CRD types
 export interface AutoStopConfig {
@@ -34,6 +40,7 @@ export interface MinecraftServerSpec {
   image?: string;
   serverType?: ServerType;
   version: string;
+  rconPassword?: string; // Unique RCON password for this server
   resources: {
     cpuRequest: string;
     cpuLimit: string;
@@ -84,6 +91,7 @@ export interface MinecraftServerSpec {
 export interface MinecraftServerStatus {
   name: string;
   namespace: string;
+  tenantId?: string;
   phase: string;
   message?: string;
   externalIP?: string;
@@ -227,6 +235,7 @@ export class K8sClient {
       image: spec.image || 'itzg/minecraft-server:latest',
       serverType: spec.serverType || 'VANILLA',
       version: spec.version || 'LATEST',
+      rconPassword: spec.rconPassword || generateRconPassword(), // Generate unique RCON password
       resources: spec.resources || {
         cpuRequest: '500m',
         cpuLimit: '2',
@@ -300,6 +309,27 @@ export class K8sClient {
       });
 
       return this.parseServerStatus(response as unknown as MinecraftServer);
+    } catch (error: any) {
+      if (error.response?.statusCode === 404) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  // Get the raw MinecraftServer CR (includes spec with rconPassword)
+  async getMinecraftServerCR(name: string): Promise<MinecraftServer | null> {
+    this.ensureAvailable();
+    try {
+      const response = await this.customApi!.getNamespacedCustomObject({
+        group: this.group,
+        version: this.version,
+        namespace: this.namespace,
+        plural: this.plural,
+        name,
+      });
+
+      return response as unknown as MinecraftServer;
     } catch (error: any) {
       if (error.response?.statusCode === 404) {
         return null;
@@ -699,32 +729,24 @@ export class K8sClient {
 
   // Get RCON endpoint for a server
   // Returns host and port for direct TCP connection to RCON
+  // SECURITY: RCON is now only accessible via internal ClusterIP service
   async getRconEndpoint(name: string): Promise<{ host: string; port: number } | null> {
     this.ensureAvailable();
     try {
-      const serviceName = `${name}-service`;
-      const svc = await this.coreApi!.readNamespacedService({
-        name: serviceName,
-        namespace: this.namespace,
-      });
+      // RCON is now on a separate internal service (ClusterIP) for security
+      // This prevents external access to RCON - it's only reachable from within the cluster
+      const rconServiceName = `${name}-rcon`;
 
       if (this.isRunningInCluster()) {
-        // Inside cluster: use service DNS name with internal port
-        const host = `${serviceName}.${this.namespace}.svc.cluster.local`;
+        // Inside cluster: use the internal RCON service DNS name
+        const host = `${rconServiceName}.${this.namespace}.svc.cluster.local`;
         return { host, port: 25575 };
       } else {
-        // Outside cluster (local dev): use minikube IP with NodePort
-        // Find the RCON port NodePort from the service spec
-        const rconPort = svc.spec?.ports?.find((p: k8s.V1ServicePort) => p.port === 25575);
-        if (rconPort?.nodePort) {
-          // Use minikube IP from environment
-          const minikubeIp = process.env.MINIKUBE_IP;
-          if (!minikubeIp) {
-            console.error('MINIKUBE_IP environment variable is required for local development');
-            return null;
-          }
-          return { host: minikubeIp, port: rconPort.nodePort };
-        }
+        // Outside cluster (local dev): RCON is not externally accessible
+        // Return null to force fallback to pod exec
+        console.log(
+          `[RCON] Running outside cluster - RCON service ${rconServiceName} is ClusterIP only`
+        );
         return null;
       }
     } catch (error: any) {
@@ -753,9 +775,11 @@ export class K8sClient {
     try {
       const endpoint = await this.getRconEndpoint(name);
       if (endpoint) {
-        const rconPassword = process.env.RCON_PASSWORD;
+        // Get server's RCON password from spec, fall back to env var for backwards compatibility
+        const server = await this.getMinecraftServerCR(name);
+        const rconPassword = server?.spec?.rconPassword || process.env.RCON_PASSWORD;
         if (!rconPassword) {
-          throw new Error('RCON_PASSWORD environment variable is required');
+          throw new Error('RCON password not found in server spec or environment');
         }
         const result = await rconPool.executeCommand(
           endpoint.host,
@@ -842,6 +866,7 @@ export class K8sClient {
     return {
       name: server.metadata.name,
       namespace: server.metadata.namespace,
+      tenantId: server.spec.tenantId,
       phase: server.status?.phase || 'Pending',
       message: server.status?.message,
       externalIP: server.status?.externalIP,

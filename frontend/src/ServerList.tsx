@@ -285,8 +285,8 @@ export function ServerList({ servers, connected, setServers }: ServerListProps) 
       {showCreateModal && (
         <CreateServerModal
           onClose={() => setShowCreateModal(false)}
-          onCreated={(server) => {
-            setServers((prev) => [...prev, server]);
+          onCreated={() => {
+            // Don't add locally - WebSocket will send the server
             setShowCreateModal(false);
           }}
           onError={setError}

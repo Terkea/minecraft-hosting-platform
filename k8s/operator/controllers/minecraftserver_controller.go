@@ -27,12 +27,17 @@ import (
 	"minecraft-platform-operator/pkg/rcon"
 )
 
-// getRconPassword returns the RCON password from environment variable
-// Panics if RCON_PASSWORD is not set
-func getRconPassword() string {
+// getRconPassword returns the RCON password for a server
+// Uses per-server password if set, otherwise falls back to global env var
+func getRconPassword(server *minecraftv1.MinecraftServer) string {
+	// Prefer per-server password if set
+	if server != nil && server.Spec.RCONPassword != "" {
+		return server.Spec.RCONPassword
+	}
+	// Fall back to global env var for backwards compatibility
 	pwd := os.Getenv("RCON_PASSWORD")
 	if pwd == "" {
-		panic("RCON_PASSWORD environment variable is required")
+		panic("RCON_PASSWORD environment variable is required when server has no rconPassword set")
 	}
 	return pwd
 }
@@ -186,8 +191,9 @@ func (r *MinecraftServerReconciler) reconcileConfigMap(ctx context.Context, serv
 	return nil
 }
 
-// reconcileService ensures the Service exists and is configured correctly
+// reconcileService ensures the external Service exists (game port only, LoadBalancer)
 func (r *MinecraftServerReconciler) reconcileService(ctx context.Context, server *minecraftv1.MinecraftServer) error {
+	// External service - game port only (LoadBalancer)
 	service := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      server.Name,
@@ -217,7 +223,7 @@ func (r *MinecraftServerReconciler) reconcileService(ctx context.Context, server
 			delete(service.Annotations, "mc-router.itzg.me/autoScaleUp")
 		}
 
-		// Configure service
+		// Configure external service - game port ONLY (SECURITY: RCON not exposed externally)
 		service.Spec = corev1.ServiceSpec{
 			Selector: map[string]string{
 				"app": server.Name,
@@ -229,12 +235,6 @@ func (r *MinecraftServerReconciler) reconcileService(ctx context.Context, server
 					Port:       25565,
 					TargetPort: intstr.FromInt(25565),
 				},
-				{
-					Name:       "rcon",
-					Protocol:   corev1.ProtocolTCP,
-					Port:       25575,
-					TargetPort: intstr.FromInt(25575),
-				},
 			},
 			Type: corev1.ServiceTypeLoadBalancer,
 		}
@@ -243,10 +243,49 @@ func (r *MinecraftServerReconciler) reconcileService(ctx context.Context, server
 	})
 
 	if err != nil {
-		return fmt.Errorf("failed to create/update Service: %w", err)
+		return fmt.Errorf("failed to create/update external Service: %w", err)
 	}
 
-	log.FromContext(ctx).Info("Service reconciled", "operation", op)
+	log.FromContext(ctx).Info("External Service reconciled", "operation", op)
+
+	// Internal service - RCON port only (ClusterIP - not accessible from outside cluster)
+	rconService := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-rcon", server.Name),
+			Namespace: server.Namespace,
+		},
+	}
+
+	rconOp, err := controllerutil.CreateOrUpdate(ctx, r.Client, rconService, func() error {
+		// Set owner reference
+		if err := controllerutil.SetControllerReference(server, rconService, r.Scheme); err != nil {
+			return err
+		}
+
+		// Configure internal RCON service - ClusterIP only
+		rconService.Spec = corev1.ServiceSpec{
+			Selector: map[string]string{
+				"app": server.Name,
+			},
+			Ports: []corev1.ServicePort{
+				{
+					Name:       "rcon",
+					Protocol:   corev1.ProtocolTCP,
+					Port:       25575,
+					TargetPort: intstr.FromInt(25575),
+				},
+			},
+			Type: corev1.ServiceTypeClusterIP,
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return fmt.Errorf("failed to create/update RCON Service: %w", err)
+	}
+
+	log.FromContext(ctx).Info("RCON Service reconciled", "operation", rconOp)
 	return nil
 }
 
@@ -365,7 +404,7 @@ func (r *MinecraftServerReconciler) buildPodSpec(server *minecraftv1.MinecraftSe
 
 		// RCON configuration for remote console access
 		{Name: "ENABLE_RCON", Value: "true"},
-		{Name: "RCON_PASSWORD", Value: getRconPassword()},
+		{Name: "RCON_PASSWORD", Value: getRconPassword(server)},
 		{Name: "RCON_PORT", Value: "25575"},
 	}
 

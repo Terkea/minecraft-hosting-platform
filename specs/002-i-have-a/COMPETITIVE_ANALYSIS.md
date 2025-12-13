@@ -230,14 +230,17 @@ This document analyzes major Minecraft server hosting platforms to identify esse
 
 #### 2.1 Backup System
 
-| Feature             | Description                   | Priority |
-| ------------------- | ----------------------------- | -------- |
-| Manual backup       | One-click backup creation     | P0       |
-| Backup restore      | Restore from backup           | P0       |
-| Automatic backups   | Scheduled backups             | P1       |
-| Backup retention    | Configurable retention policy | P1       |
-| Backup download     | Download backup files         | P1       |
-| Incremental backups | Only changed files            | P2       |
+| Feature                  | Description                                      | Priority |
+| ------------------------ | ------------------------------------------------ | -------- |
+| Manual backup            | One-click backup creation                        | P0       |
+| Backup restore           | Restore from backup                              | P0       |
+| Automatic backups        | Scheduled backups                                | P1       |
+| Backup retention         | Configurable retention policy                    | P1       |
+| Backup download          | Download backup files                            | P1       |
+| User cloud storage       | Backup to user's Google Drive/Dropbox/OneDrive   | P1       |
+| Incremental backups      | Only changed files                               | P2       |
+
+> **Implementation Plan**: See [docs/plans/google-oauth-drive-backup.md](../../docs/plans/google-oauth-drive-backup.md) for the Google OAuth + Google Drive backup implementation details.
 
 #### 2.2 File Management
 

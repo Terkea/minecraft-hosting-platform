@@ -17,6 +17,8 @@ import {
   Settings,
   ToggleLeft,
   ToggleRight,
+  Cloud,
+  ExternalLink,
 } from 'lucide-react';
 import {
   listBackups,
@@ -211,10 +213,43 @@ export function BackupManager({ serverName, isRunning }: BackupManagerProps) {
     }
   };
 
-  const handleDownload = (backup: Backup) => {
-    // Open download URL directly - bypasses Vite proxy buffering for large files
-    window.open(`http://localhost:8080/api/v1/backups/${backup.id}/download`, '_blank');
-    showSuccessMessage(`Download started for "${backup.name}"`);
+  const handleDownload = async (backup: Backup) => {
+    try {
+      setActionInProgress(backup.id);
+      // Fetch with auth headers and trigger download
+      const token = localStorage.getItem('auth_token');
+      const response = await fetch(`http://localhost:8080/api/v1/backups/${backup.id}/download`, {
+        headers: {
+          Authorization: token ? `Bearer ${token}` : '',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Download failed');
+      }
+
+      // Get filename from Content-Disposition header or use default
+      const contentDisposition = response.headers.get('Content-Disposition');
+      const filenameMatch = contentDisposition?.match(/filename="(.+)"/);
+      const filename = filenameMatch?.[1] || `${backup.serverId}-${backup.id}.tar.gz`;
+
+      // Create blob and trigger download
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      showSuccessMessage(`Download started for "${backup.name}"`);
+    } catch (err: any) {
+      setError(err.message || 'Download failed');
+    } finally {
+      setActionInProgress(null);
+    }
   };
 
   const handleSaveSchedule = async () => {
@@ -253,6 +288,14 @@ export function BackupManager({ serverName, isRunning }: BackupManagerProps) {
           <Archive className="w-5 h-5 text-blue-400" />
           <h2 className="text-lg font-semibold text-white">Backups</h2>
           <span className="text-sm text-gray-400">({backups.length})</span>
+          {/* Google Drive status badge */}
+          <span
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-blue-500/20 text-blue-400"
+            title="Backups stored in Google Drive"
+          >
+            <Cloud className="w-3 h-3" />
+            Google Drive
+          </span>
           {schedule?.enabled && (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-green-500/20 text-green-400">
               <Clock className="w-3 h-3" />
@@ -416,6 +459,17 @@ export function BackupManager({ serverName, isRunning }: BackupManagerProps) {
                             >
                               <Download className="w-4 h-4" />
                             </button>
+                            {backup.driveWebLink && (
+                              <a
+                                href={backup.driveWebLink}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="p-1.5 text-blue-400 hover:text-blue-300 hover:bg-blue-500/20 rounded transition-colors"
+                                title="View in Google Drive"
+                              >
+                                <ExternalLink className="w-4 h-4" />
+                              </a>
+                            )}
                           </>
                         )}
                         <button
@@ -482,9 +536,14 @@ export function BackupManager({ serverName, isRunning }: BackupManagerProps) {
                 />
               </div>
 
-              <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg text-blue-400 text-sm">
-                <strong>Note:</strong> Creating a backup will temporarily pause the server to ensure
-                data consistency.
+              <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg text-blue-400 text-sm space-y-1">
+                <div className="flex items-center gap-2">
+                  <Cloud className="w-4 h-4" />
+                  <span>Backup will be stored in your Google Drive</span>
+                </div>
+                <div className="text-xs text-blue-400/70">
+                  Server may briefly pause to ensure data consistency
+                </div>
               </div>
 
               <div className="flex justify-end gap-2 pt-2">

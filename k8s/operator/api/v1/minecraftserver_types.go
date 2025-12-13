@@ -52,6 +52,10 @@ type MinecraftServerSpec struct {
 
 	// AutoStart configuration for automatic startup when player connects
 	AutoStart *AutoStartConfig `json:"autoStart,omitempty"`
+
+	// RCONPassword is the unique password for this server's RCON access
+	// This is auto-generated when the server is created
+	RCONPassword string `json:"rconPassword,omitempty"`
 }
 
 // MinecraftServerResources defines resource requirements

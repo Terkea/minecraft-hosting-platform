@@ -1,9 +1,45 @@
 import { Server, CreateServerRequest, UpdateServerRequest, ApiResponse } from './types';
 
 const API_BASE = '/api/v1';
+const TOKEN_KEY = 'auth_token';
+
+/**
+ * Get auth token from localStorage
+ */
+function getAuthToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+/**
+ * Get headers with auth token
+ */
+function getAuthHeaders(): HeadersInit {
+  const token = getAuthToken();
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+}
+
+/**
+ * Handle 401 responses by redirecting to login
+ */
+function handleUnauthorized(response: Response): void {
+  if (response.status === 401) {
+    // Clear token and redirect to login
+    localStorage.removeItem(TOKEN_KEY);
+    window.location.href = '/login';
+  }
+}
 
 export async function listServers(): Promise<Server[]> {
-  const response = await fetch(`${API_BASE}/servers`);
+  const response = await fetch(`${API_BASE}/servers`, {
+    headers: getAuthHeaders(),
+  });
+  handleUnauthorized(response);
   if (!response.ok) {
     throw new Error('Failed to fetch servers');
   }
@@ -14,12 +50,11 @@ export async function listServers(): Promise<Server[]> {
 export async function createServer(request: CreateServerRequest): Promise<Server> {
   const response = await fetch(`${API_BASE}/servers`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: getAuthHeaders(),
     body: JSON.stringify(request),
   });
 
+  handleUnauthorized(response);
   const data = await response.json();
 
   if (!response.ok) {
@@ -30,7 +65,10 @@ export async function createServer(request: CreateServerRequest): Promise<Server
 }
 
 export async function getServer(name: string): Promise<Server> {
-  const response = await fetch(`${API_BASE}/servers/${name}`);
+  const response = await fetch(`${API_BASE}/servers/${name}`, {
+    headers: getAuthHeaders(),
+  });
+  handleUnauthorized(response);
   if (!response.ok) {
     throw new Error('Server not found');
   }
@@ -40,8 +78,10 @@ export async function getServer(name: string): Promise<Server> {
 export async function deleteServer(name: string): Promise<void> {
   const response = await fetch(`${API_BASE}/servers/${name}`, {
     method: 'DELETE',
+    headers: getAuthHeaders(),
   });
 
+  handleUnauthorized(response);
   if (!response.ok) {
     const data = await response.json();
     throw new Error(data.message || 'Failed to delete server');
@@ -49,7 +89,10 @@ export async function deleteServer(name: string): Promise<void> {
 }
 
 export async function getServerLogs(name: string, lines: number = 100): Promise<string[]> {
-  const response = await fetch(`${API_BASE}/servers/${name}/logs?lines=${lines}`);
+  const response = await fetch(`${API_BASE}/servers/${name}/logs?lines=${lines}`, {
+    headers: getAuthHeaders(),
+  });
+  handleUnauthorized(response);
   if (!response.ok) {
     throw new Error('Failed to fetch logs');
   }
@@ -73,7 +116,10 @@ export interface LogFilesResponse {
 }
 
 export async function getLogFiles(name: string): Promise<LogFilesResponse> {
-  const response = await fetch(`${API_BASE}/servers/${name}/logs/files`);
+  const response = await fetch(`${API_BASE}/servers/${name}/logs/files`, {
+    headers: getAuthHeaders(),
+  });
+  handleUnauthorized(response);
   if (!response.ok) {
     throw new Error('Failed to fetch log files');
   }
@@ -86,8 +132,10 @@ export async function getLogFileContent(
   lines: number = 500
 ): Promise<string[]> {
   const response = await fetch(
-    `${API_BASE}/servers/${name}/logs/files/${encodeURIComponent(filename)}?lines=${lines}`
+    `${API_BASE}/servers/${name}/logs/files/${encodeURIComponent(filename)}?lines=${lines}`,
+    { headers: getAuthHeaders() }
   );
+  handleUnauthorized(response);
   if (!response.ok) {
     throw new Error('Failed to fetch log file content');
   }
@@ -109,7 +157,10 @@ export interface ServerMetricsResponse {
 }
 
 export async function getServerMetrics(name: string): Promise<ServerMetricsResponse> {
-  const response = await fetch(`${API_BASE}/servers/${name}/metrics`);
+  const response = await fetch(`${API_BASE}/servers/${name}/metrics`, {
+    headers: getAuthHeaders(),
+  });
+  handleUnauthorized(response);
   if (!response.ok) {
     throw new Error('Failed to fetch metrics');
   }
@@ -125,7 +176,10 @@ export interface PodStatus {
 }
 
 export async function getPodStatus(name: string): Promise<PodStatus> {
-  const response = await fetch(`${API_BASE}/servers/${name}/pod`);
+  const response = await fetch(`${API_BASE}/servers/${name}/pod`, {
+    headers: getAuthHeaders(),
+  });
+  handleUnauthorized(response);
   if (!response.ok) {
     throw new Error('Failed to fetch pod status');
   }
@@ -135,12 +189,11 @@ export async function getPodStatus(name: string): Promise<PodStatus> {
 export async function executeCommand(name: string, command: string): Promise<string> {
   const response = await fetch(`${API_BASE}/servers/${name}/console`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: getAuthHeaders(),
     body: JSON.stringify({ command }),
   });
 
+  handleUnauthorized(response);
   if (!response.ok) {
     const data = await response.json();
     throw new Error(data.message || 'Failed to execute command');
@@ -153,6 +206,7 @@ export async function executeCommand(name: string, command: string): Promise<str
 export async function stopServer(name: string): Promise<void> {
   const response = await fetch(`${API_BASE}/servers/${name}/stop`, {
     method: 'POST',
+    headers: getAuthHeaders(),
   });
 
   if (!response.ok) {
@@ -669,6 +723,9 @@ export interface Backup {
   isAutomatic: boolean;
   tags: string[];
   errorMessage?: string;
+  // Google Drive integration
+  driveFileId?: string;
+  driveWebLink?: string;
 }
 
 export interface BackupListResponse {
@@ -683,7 +740,10 @@ export interface CreateBackupRequest {
 }
 
 export async function listBackups(serverName: string): Promise<BackupListResponse> {
-  const response = await fetch(`${API_BASE}/servers/${serverName}/backups`);
+  const response = await fetch(`${API_BASE}/servers/${serverName}/backups`, {
+    headers: getAuthHeaders(),
+  });
+  handleUnauthorized(response);
   if (!response.ok) {
     throw new Error('Failed to fetch backups');
   }
@@ -696,10 +756,11 @@ export async function createBackup(
 ): Promise<{ message: string; backup: Backup }> {
   const response = await fetch(`${API_BASE}/servers/${serverName}/backups`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify(options || {}),
   });
 
+  handleUnauthorized(response);
   if (!response.ok) {
     const data = await response.json();
     throw new Error(data.message || 'Failed to create backup');
@@ -709,7 +770,10 @@ export async function createBackup(
 }
 
 export async function getBackup(backupId: string): Promise<Backup> {
-  const response = await fetch(`${API_BASE}/backups/${backupId}`);
+  const response = await fetch(`${API_BASE}/backups/${backupId}`, {
+    headers: getAuthHeaders(),
+  });
+  handleUnauthorized(response);
   if (!response.ok) {
     throw new Error('Backup not found');
   }
@@ -719,8 +783,10 @@ export async function getBackup(backupId: string): Promise<Backup> {
 export async function deleteBackup(backupId: string): Promise<void> {
   const response = await fetch(`${API_BASE}/backups/${backupId}`, {
     method: 'DELETE',
+    headers: getAuthHeaders(),
   });
 
+  handleUnauthorized(response);
   if (!response.ok) {
     const data = await response.json();
     throw new Error(data.message || 'Failed to delete backup');
@@ -730,8 +796,10 @@ export async function deleteBackup(backupId: string): Promise<void> {
 export async function restoreBackup(backupId: string): Promise<{ message: string }> {
   const response = await fetch(`${API_BASE}/backups/${backupId}/restore`, {
     method: 'POST',
+    headers: getAuthHeaders(),
   });
 
+  handleUnauthorized(response);
   if (!response.ok) {
     const data = await response.json();
     throw new Error(data.message || 'Failed to restore backup');
@@ -741,7 +809,10 @@ export async function restoreBackup(backupId: string): Promise<{ message: string
 }
 
 export async function downloadBackup(backupId: string): Promise<Blob> {
-  const response = await fetch(`${API_BASE}/backups/${backupId}/download`);
+  const response = await fetch(`${API_BASE}/backups/${backupId}/download`, {
+    headers: getAuthHeaders(),
+  });
+  handleUnauthorized(response);
   if (!response.ok) {
     throw new Error('Failed to download backup');
   }
@@ -760,7 +831,10 @@ export interface BackupSchedule {
 }
 
 export async function getBackupSchedule(serverName: string): Promise<BackupSchedule> {
-  const response = await fetch(`${API_BASE}/servers/${serverName}/backups/schedule`);
+  const response = await fetch(`${API_BASE}/servers/${serverName}/backups/schedule`, {
+    headers: getAuthHeaders(),
+  });
+  handleUnauthorized(response);
   if (!response.ok) {
     throw new Error('Failed to fetch backup schedule');
   }
@@ -773,10 +847,11 @@ export async function setBackupSchedule(
 ): Promise<{ message: string; schedule: BackupSchedule }> {
   const response = await fetch(`${API_BASE}/servers/${serverName}/backups/schedule`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify(config),
   });
 
+  handleUnauthorized(response);
   if (!response.ok) {
     const data = await response.json();
     throw new Error(data.message || 'Failed to set backup schedule');

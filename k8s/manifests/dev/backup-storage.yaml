@@ -1,0 +1,16 @@
+---
+# Shared PVC for storing Minecraft server backups
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minecraft-backups
+  namespace: minecraft-servers
+  labels:
+    app: minecraft-platform
+    component: backup-storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi

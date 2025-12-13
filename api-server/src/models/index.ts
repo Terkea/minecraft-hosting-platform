@@ -183,6 +183,10 @@ export interface BackupSnapshot {
   storagePath: string;
   checksum: string;
 
+  // Google Drive integration
+  driveFileId?: string;
+  driveWebLink?: string;
+
   // Status
   status: 'pending' | 'in_progress' | 'completed' | 'failed';
   errorMessage?: string;

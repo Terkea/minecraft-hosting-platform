@@ -9,7 +9,8 @@ export function useWebSocket() {
 
   const connect = useCallback(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    const token = localStorage.getItem('auth_token');
+    const wsUrl = `${protocol}//${window.location.host}/ws${token ? `?token=${token}` : ''}`;
 
     const ws = new WebSocket(wsUrl);
 
@@ -32,7 +33,10 @@ export function useWebSocket() {
 
           case 'created':
             if (message.server) {
-              setServers((prev) => [...prev, message.server!]);
+              setServers((prev) => {
+                const exists = prev.some((s) => s.name === message.server!.name);
+                return exists ? prev : [...prev, message.server!];
+              });
             }
             break;
 
@@ -56,7 +60,6 @@ export function useWebSocket() {
             }
             break;
 
-          // Handle individual server updates (started, stopped, updated, etc.)
           case 'started':
           case 'stopped':
           case 'updated':
@@ -67,13 +70,10 @@ export function useWebSocket() {
           case 'auto_start_configured':
             if (message.server) {
               setServers((prev) => {
-                // Check if server already exists
                 const exists = prev.some((s) => s.name === message.server!.name);
                 if (!exists && message.type === 'added') {
-                  // Add new server
                   return [...prev, message.server!];
                 }
-                // Update existing server
                 return prev.map((s) =>
                   s.name === message.server!.name ? { ...s, ...message.server! } : s
                 );
@@ -90,7 +90,6 @@ export function useWebSocket() {
       console.log('WebSocket disconnected');
       setConnected(false);
 
-      // Reconnect after 3 seconds
       reconnectTimeoutRef.current = setTimeout(() => {
         connect();
       }, 3000);

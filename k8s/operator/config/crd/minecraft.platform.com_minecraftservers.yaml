@@ -260,6 +260,11 @@ spec:
                   - name
                   type: object
                 type: array
+              rconPassword:
+                description: |-
+                  RCONPassword is the unique password for this server's RCON access
+                  This is auto-generated when the server is created
+                type: string
               resources:
                 description: Resources defines the resource requirements for the server
                 properties:
