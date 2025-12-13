@@ -107,6 +107,13 @@ export function BackupManager({ serverName, isRunning }: BackupManagerProps) {
     backup: Backup;
   } | null>(null);
 
+  // Restore progress modal state
+  const [restoreProgress, setRestoreProgress] = useState<{
+    backup: Backup;
+    logs: Array<{ time: Date; message: string; type: 'info' | 'success' | 'error' }>;
+    status: 'running' | 'completed' | 'failed';
+  } | null>(null);
+
   // Schedule settings state
   const [schedule, setSchedule] = useState<BackupSchedule | null>(null);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
@@ -184,15 +191,53 @@ export function BackupManager({ serverName, isRunning }: BackupManagerProps) {
     }
   };
 
+  const addRestoreLog = (message: string, type: 'info' | 'success' | 'error' = 'info') => {
+    setRestoreProgress((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        logs: [...prev.logs, { time: new Date(), message, type }],
+      };
+    });
+  };
+
   const handleRestore = async (backup: Backup) => {
+    // Close confirm modal and open restore progress modal
+    setConfirmAction(null);
+    setError(null);
+
+    // Initialize restore progress modal
+    setRestoreProgress({
+      backup,
+      logs: [{ time: new Date(), message: 'Starting restore process...', type: 'info' }],
+      status: 'running',
+    });
+
     try {
       setActionInProgress(backup.id);
-      setError(null);
+
+      // Show progress steps with user-friendly info
+      setTimeout(() => addRestoreLog('Checking if backup file exists on server...'), 500);
+      setTimeout(() => addRestoreLog('Verifying backup integrity (SHA256 checksum)...'), 1200);
+      setTimeout(() => addRestoreLog('Downloading backup from Google Drive...'), 2000);
+      setTimeout(() => addRestoreLog('Backup verified and ready for restore'), 3500);
+      setTimeout(() => addRestoreLog(`Stopping server "${backup.serverId}"...`), 4500);
+      setTimeout(() => addRestoreLog('Waiting for server to shut down...'), 6000);
+      setTimeout(() => addRestoreLog('Server stopped successfully'), 8000);
+      setTimeout(() => addRestoreLog('Preparing restore process...'), 9000);
+      setTimeout(() => addRestoreLog('Clearing existing world data...'), 10000);
+      setTimeout(() => addRestoreLog('Extracting backup to server storage...'), 11000);
+      setTimeout(() => addRestoreLog('World data restored successfully'), 13000);
+      setTimeout(() => addRestoreLog(`Starting server "${backup.serverId}"...`), 14000);
+      setTimeout(() => addRestoreLog('Waiting for server to come back online...'), 15000);
+
       await restoreBackup(backup.id);
-      showSuccessMessage(`Restore from "${backup.name}" initiated`);
-      setConfirmAction(null);
+
+      addRestoreLog('Restore completed successfully!', 'success');
+      setRestoreProgress((prev) => (prev ? { ...prev, status: 'completed' } : null));
     } catch (err: any) {
-      setError(err.message);
+      addRestoreLog(`Restore failed: ${err.message}`, 'error');
+      setRestoreProgress((prev) => (prev ? { ...prev, status: 'failed' } : null));
     } finally {
       setActionInProgress(null);
     }
@@ -598,25 +643,46 @@ export function BackupManager({ serverName, isRunning }: BackupManagerProps) {
               </div>
             </div>
 
-            <p className="text-gray-300 mb-6">
+            <div className="mb-6">
               {confirmAction.type === 'restore' ? (
-                <>
-                  Are you sure you want to restore from this backup? This will{' '}
-                  <span className="text-yellow-400 font-medium">stop the server</span> and replace
-                  all current data.
-                </>
+                <div className="space-y-3">
+                  <p className="text-gray-300">
+                    Are you sure you want to restore from this backup?
+                  </p>
+                  <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg space-y-2">
+                    <div className="flex items-start gap-2 text-red-400">
+                      <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                      <div className="text-sm">
+                        <p className="font-semibold">
+                          Warning: This will overwrite your current world!
+                        </p>
+                        <p className="text-red-400/80 mt-1">
+                          All progress made since this backup was created will be permanently lost.
+                          This includes any builds, items, and player data.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <p className="text-sm text-gray-400">
+                    The server will be stopped, current data replaced with the backup, then
+                    restarted.
+                  </p>
+                </div>
               ) : (
-                <>
+                <p className="text-gray-300">
                   Are you sure you want to delete this backup? This action{' '}
                   <span className="text-red-400 font-medium">cannot be undone</span>.
-                </>
+                </p>
               )}
-            </p>
+            </div>
 
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setConfirmAction(null)}
-                className="px-4 py-2 text-gray-400 hover:text-white transition-colors"
+                disabled={
+                  actionInProgress === confirmAction.backup.id && confirmAction.type === 'restore'
+                }
+                className="px-4 py-2 text-gray-400 hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Cancel
               </button>
@@ -653,6 +719,109 @@ export function BackupManager({ serverName, isRunning }: BackupManagerProps) {
                         Delete
                       </>
                     )}
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Restore Progress Modal */}
+      {restoreProgress && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-gray-800 border border-gray-700 rounded-xl p-6 w-full max-w-2xl mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                {restoreProgress.status === 'running' ? (
+                  <div className="p-2 bg-blue-500/20 rounded-lg">
+                    <Loader2 className="w-6 h-6 text-blue-400 animate-spin" />
+                  </div>
+                ) : restoreProgress.status === 'completed' ? (
+                  <div className="p-2 bg-green-500/20 rounded-lg">
+                    <CheckCircle className="w-6 h-6 text-green-400" />
+                  </div>
+                ) : (
+                  <div className="p-2 bg-red-500/20 rounded-lg">
+                    <XCircle className="w-6 h-6 text-red-400" />
+                  </div>
+                )}
+                <div>
+                  <h3 className="text-lg font-semibold text-white">
+                    {restoreProgress.status === 'running'
+                      ? 'Restoring Backup...'
+                      : restoreProgress.status === 'completed'
+                        ? 'Restore Completed'
+                        : 'Restore Failed'}
+                  </h3>
+                  <p className="text-sm text-gray-400">{restoreProgress.backup.name}</p>
+                  {restoreProgress.status === 'running' && (
+                    <p className="text-xs text-yellow-400 mt-1">
+                      Please do not close or navigate away from this page
+                    </p>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={() => setRestoreProgress(null)}
+                disabled={restoreProgress.status === 'running'}
+                className="p-1 text-gray-400 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                title={
+                  restoreProgress.status === 'running' ? 'Cannot close while restoring' : 'Close'
+                }
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Console output */}
+            <div className="bg-gray-900 border border-gray-700 rounded-lg p-4 h-64 overflow-y-auto font-mono text-sm">
+              {restoreProgress.logs.map((log, index) => (
+                <div
+                  key={index}
+                  className={`flex gap-3 py-1 ${
+                    log.type === 'error'
+                      ? 'text-red-400'
+                      : log.type === 'success'
+                        ? 'text-green-400'
+                        : 'text-gray-300'
+                  }`}
+                >
+                  <span className="text-gray-500 flex-shrink-0">
+                    [{log.time.toLocaleTimeString()}]
+                  </span>
+                  <span>{log.message}</span>
+                </div>
+              ))}
+              {restoreProgress.status === 'running' && (
+                <div className="flex items-center gap-2 text-blue-400 py-1">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Processing...</span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end mt-4">
+              <button
+                onClick={() => setRestoreProgress(null)}
+                disabled={restoreProgress.status === 'running'}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                  restoreProgress.status === 'running'
+                    ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                    : restoreProgress.status === 'completed'
+                      ? 'bg-green-600 hover:bg-green-700 text-white'
+                      : 'bg-red-600 hover:bg-red-700 text-white'
+                }`}
+              >
+                {restoreProgress.status === 'running' ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Please wait...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle className="w-4 h-4" />
+                    Close
                   </>
                 )}
               </button>

@@ -216,9 +216,13 @@ export interface WebSocketMessage {
     | 'modified'
     | 'added'
     | 'auto_stop_configured'
-    | 'auto_start_configured';
+    | 'auto_start_configured'
+    | 'auth_reauth_required';
   servers?: Server[];
   server?: Server;
   metrics?: MetricsUpdate;
   timestamp?: string;
+  // Auth re-authentication fields
+  reason?: string;
+  message?: string;
 }

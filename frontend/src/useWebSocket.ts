@@ -1,9 +1,15 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { Server, WebSocketMessage } from './types';
 
+export interface ReauthRequest {
+  reason: string;
+  message: string;
+}
+
 export function useWebSocket() {
   const [servers, setServers] = useState<Server[]>([]);
   const [connected, setConnected] = useState(false);
+  const [reauthRequired, setReauthRequired] = useState<ReauthRequest | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
@@ -80,6 +86,13 @@ export function useWebSocket() {
               });
             }
             break;
+
+          case 'auth_reauth_required':
+            setReauthRequired({
+              reason: message.reason || 'Authentication expired',
+              message: message.message || 'Please re-authenticate with Google',
+            });
+            break;
         }
       } catch (error) {
         console.error('Failed to parse WebSocket message:', error);
@@ -115,5 +128,9 @@ export function useWebSocket() {
     };
   }, [connect]);
 
-  return { servers, connected, setServers };
+  const clearReauthRequired = useCallback(() => {
+    setReauthRequired(null);
+  }, []);
+
+  return { servers, connected, setServers, reauthRequired, clearReauthRequired };
 }

@@ -9,9 +9,9 @@ import { K8sClient, MinecraftServerSpec } from './k8s-client.js';
 import { SyncService } from './services/sync-service.js';
 import { BackupService } from './services/backup-service.js';
 import { MetricsService, ServerMetrics } from './services/metrics-service.js';
-import { getEventBus } from './events/event-bus.js';
+import { getEventBus, EventType } from './events/event-bus.js';
 import { userStore } from './models/user.js';
-import { GoogleDriveService } from './services/google-drive-service.js';
+import { GoogleDriveService, createDriveServiceForUser } from './services/google-drive-service.js';
 import { closePool } from './db/connection.js';
 import {
   requireAuth,
@@ -2611,7 +2611,7 @@ app.put(
   }
 );
 
-// Download a backup
+// Download a backup from Google Drive
 app.get(
   '/api/v1/backups/:backupId/download',
   requireAuth,
@@ -2635,41 +2635,43 @@ app.get(
         });
       }
 
-      // Backup filename in the backup PVC
-      const backupFilename = `${backup.serverId}-${backup.id}.tar.gz`;
+      if (!backup.driveFileId) {
+        return res.status(404).json({
+          error: 'backup_not_in_drive',
+          message: `Backup file not found in Google Drive`,
+        });
+      }
+
       const downloadFilename = `${backup.serverId}-${backup.name.replace(/[^a-z0-9]/gi, '-')}.tar.gz`;
 
-      // Backup server URL - NodePort accessible from outside cluster
-      // BACKUP_SERVER_URL should be set to minikube IP + NodePort (e.g., http://192.168.49.2:30090)
-      const backupServerUrl = process.env.BACKUP_SERVER_URL || 'http://192.168.49.2:30090';
+      console.log(`[Backup] Downloading from Google Drive: ${backup.driveFileId}`);
 
-      console.log(`[Backup] Downloading ${backupFilename} from ${backupServerUrl}`);
-
-      // Fetch from backup server via NodePort
-      const response = await fetch(`${backupServerUrl}/${backupFilename}`);
-
-      if (!response.ok) {
-        if (response.status === 404) {
-          return res.status(404).json({
-            error: 'backup_file_not_found',
-            message: `Backup file not found on storage server`,
-          });
-        }
-        throw new Error(`Backup server returned ${response.status}`);
+      // Get user for Drive credentials
+      const user = await userStore.getUserById(req.userId!);
+      if (!user) {
+        return res.status(401).json({
+          error: 'unauthorized',
+          message: 'User not found',
+        });
       }
+
+      // Download from Google Drive
+      const driveService = createDriveServiceForUser(
+        user.googleAccessToken,
+        user.googleRefreshToken
+      );
+
+      const stream = await driveService.getDownloadStream(backup.driveFileId);
 
       res.setHeader('Content-Type', 'application/gzip');
       res.setHeader('Content-Disposition', `attachment; filename="${downloadFilename}"`);
 
-      // Get content length if available
-      const contentLength = response.headers.get('content-length');
-      if (contentLength) {
-        res.setHeader('Content-Length', contentLength);
+      if (backup.sizeBytes) {
+        res.setHeader('Content-Length', backup.sizeBytes.toString());
       }
 
-      // Buffer and send the response
-      const buffer = await response.arrayBuffer();
-      res.send(Buffer.from(buffer));
+      // Pipe the stream to response
+      stream.pipe(res);
     } catch (error: any) {
       console.error('Failed to download backup:', error);
       res.status(500).json({
@@ -2821,6 +2823,23 @@ syncService.registerCallback({
 // Subscribe to event bus for logging/metrics
 eventBus.subscribe('*', (event) => {
   console.log(`[Event] ${event.type}: ${event.id}`);
+});
+
+// Subscribe to auth re-auth required events
+eventBus.subscribe(EventType.AUTH_REAUTH_REQUIRED, (event: any) => {
+  const tenantId = event.tenantId;
+
+  wsClients.forEach((authClient, ws) => {
+    if (ws.readyState === WebSocket.OPEN && authClient.userId === tenantId) {
+      const message = JSON.stringify({
+        type: 'auth_reauth_required',
+        reason: event.data?.reason || 'Authentication expired',
+        message: event.data?.message || 'Please re-authenticate with Google',
+        timestamp: new Date().toISOString(),
+      });
+      ws.send(message);
+    }
+  });
 });
 
 // Async startup function

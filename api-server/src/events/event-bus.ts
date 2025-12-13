@@ -29,6 +29,9 @@ export enum EventType {
   BACKUP_STARTED = 'backup.started',
   BACKUP_COMPLETED = 'backup.completed',
   BACKUP_FAILED = 'backup.failed',
+
+  // Auth Events
+  AUTH_REAUTH_REQUIRED = 'auth.reauth.required',
 }
 
 // Base Event Interface
