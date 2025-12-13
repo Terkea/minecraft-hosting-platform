@@ -523,9 +523,19 @@ app.post(
           memory: memory || '2G',
           storage: '10Gi',
         },
+        // Auto-stop enabled by default: shutdown after 2 minutes of no players
+        autoStop: {
+          enabled: true,
+          idleTimeoutMinutes: 2,
+        },
       };
 
       const server = await k8sClient.createMinecraftServer(name, spec);
+
+      // Update Gate proxy routes to include the new server
+      k8sClient.updateGateRoutes().catch((err: Error) => {
+        console.error('[API] Failed to update Gate routes after server creation:', err.message);
+      });
 
       // Note: Don't broadcast here - K8s watcher will send 'added' event
       res.status(201).json({
@@ -598,6 +608,11 @@ app.delete('/api/v1/servers/:id', requireAuth, async (req: AuthenticatedRequest,
       console.warn(`[API] Failed to soft-delete backup data for ${id}:`, dbError.message);
       // Continue anyway - CRD deletion is the critical part
     }
+
+    // 4. Update Gate proxy routes to remove the deleted server
+    k8sClient.updateGateRoutes().catch((err: Error) => {
+      console.error('[API] Failed to update Gate routes after server deletion:', err.message);
+    });
 
     // Broadcast to WebSocket clients
     broadcastServerUpdate('deleted', {
@@ -1021,50 +1036,8 @@ app.post(
   }
 );
 
-// Configure auto-stop settings
-interface AutoStopBody {
-  enabled: boolean;
-  idleTimeoutMinutes?: number;
-}
-
-app.put(
-  '/api/v1/servers/:id/auto-stop',
-  requireAuth,
-  async (req: AuthenticatedRequest & { body: AutoStopBody }, res: Response) => {
-    try {
-      const { id } = req.params;
-      const serverCheck = await verifyServerOwnership(req, res, id);
-      if (!serverCheck) return;
-
-      const { enabled, idleTimeoutMinutes } = req.body;
-
-      if (typeof enabled !== 'boolean') {
-        return res.status(400).json({
-          error: 'invalid_request',
-          message: 'enabled (boolean) is required',
-        });
-      }
-
-      const updatedServer = await k8sClient.configureAutoStop(serverCheck.name, {
-        enabled,
-        idleTimeoutMinutes,
-      });
-
-      broadcastServerUpdate('auto_stop_configured', updatedServer);
-
-      res.json({
-        message: `Auto-stop ${enabled ? 'enabled' : 'disabled'} for server '${serverCheck.displayName}'`,
-        server: updatedServer,
-      });
-    } catch (error: any) {
-      console.error('Failed to configure auto-stop:', error);
-      res.status(500).json({
-        error: 'auto_stop_config_failed',
-        message: error.message,
-      });
-    }
-  }
-);
+// NOTE: Auto-stop configuration endpoint removed - auto-stop is always enabled
+// with a fixed 2-minute idle timeout to save resources. Users cannot modify this.
 
 // Configure auto-start settings
 interface AutoStartBody {
@@ -2967,7 +2940,6 @@ API Endpoints:
     POST   /api/v1/servers/:id/stop   - Stop a server
     POST   /api/v1/servers/:id/start  - Start a server
     POST   /api/v1/servers/:id/console - Execute RCON command
-    PUT    /api/v1/servers/:id/auto-stop  - Configure auto-stop
     PUT    /api/v1/servers/:id/auto-start - Configure auto-start
 
   Backups:
@@ -2984,6 +2956,14 @@ API Endpoints:
       console.log('[Startup] Sync service initialized');
     } catch (error) {
       console.error('[Startup] Failed to initialize sync service:', error);
+    }
+
+    // Sync Gate proxy routes with current servers
+    try {
+      await k8sClient.updateGateRoutes();
+      console.log('[Startup] Gate proxy routes synchronized');
+    } catch (error) {
+      console.warn('[Startup] Failed to sync Gate routes (Gate may not be deployed):', error);
     }
 
     // Start metrics collection with WebSocket broadcast

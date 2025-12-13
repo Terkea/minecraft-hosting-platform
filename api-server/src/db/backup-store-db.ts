@@ -81,12 +81,21 @@ export class BackupStoreDB {
   }
 
   /**
+   * Derive K8s resource name from server UUID.
+   * Format: mc-{first 12 hex chars of UUID without dashes}
+   */
+  private deriveServerName(serverId: string): string {
+    return 'mc-' + serverId.replace(/-/g, '').substring(0, 12);
+  }
+
+  /**
    * Map database row to BackupSnapshot interface
    */
   private mapRowToBackup(row: BackupRow): BackupSnapshot {
     return {
       id: row.id,
       serverId: row.server_id,
+      serverName: this.deriveServerName(row.server_id), // Derived from serverId
       tenantId: row.tenant_id,
       name: row.name,
       description: row.description || undefined,
@@ -128,9 +137,10 @@ export class BackupStoreDB {
   // ============== Backup Operations ==============
 
   /**
-   * Create a new backup record
+   * Create a new backup record.
+   * Note: 'serverName' is excluded because it's derived from 'serverId' when reading.
    */
-  async createBackup(backup: Omit<BackupSnapshot, 'id'>): Promise<BackupSnapshot> {
+  async createBackup(backup: Omit<BackupSnapshot, 'id' | 'serverName'>): Promise<BackupSnapshot> {
     const id = uuidv4();
     const now = new Date();
 

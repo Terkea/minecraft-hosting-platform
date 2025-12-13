@@ -142,58 +142,128 @@ if server.Spec.Stopped {
 
 **Purpose**: Automatically stop servers with no players to save resources.
 
-**Configuration**:
+**Default Behavior**: Auto-stop is **always enabled** with a **2-minute idle timeout**. This is not user-configurable to ensure efficient resource usage across all servers.
 
 ```yaml
 spec:
   autoStop:
     enabled: true
-    idleTimeoutMinutes: 3 # 1-1440 minutes
+    idleTimeoutMinutes: 2 # Fixed - not user-configurable
 ```
 
 **How It Works**:
 
 1. Operator polls player count via RCON every 30 seconds
 2. When playerCount = 0, `lastPlayerActivity` timestamp is set
-3. If (now - lastPlayerActivity) > idleTimeoutMinutes, server is stopped
-4. `autoStoppedAt` timestamp is recorded for wake-on-connect tracking
+3. If (now - lastPlayerActivity) > 2 minutes, server is stopped automatically
+4. `autoStoppedAt` timestamp is recorded for tracking
+5. Gate proxy shows offline MOTD when players ping the stopped server
 
-**Operator Implementation**: Checks `server.Status.LastPlayerActivity` against configured timeout.
+**Operator Implementation**: Checks `server.Status.LastPlayerActivity` against the 2-minute timeout.
 
-### 4. Offline MOTD (Aternos-Style)
+### 4. Offline MOTD with Dynamic Gate Routing
 
-**Purpose**: Show a custom message in the Minecraft server list when servers are offline, prompting players to start the server from the dashboard.
+**Purpose**: Show a custom message in the Minecraft server list when servers are offline, prompting players to start the server from the dashboard. Gate supports multiple servers from different tenants with host-based routing.
+
+**Architecture**:
+
+```
+Players connect to: {server-name}.local:25565
+                         │
+                         ▼
+                 ┌──────────────┐
+                 │  Gate Proxy  │ (single instance, shared)
+                 │  port 25565  │
+                 └──────┬───────┘
+                        │ Routes based on hostname
+         ┌──────────────┼──────────────┐
+         ▼              ▼              ▼
+   ┌──────────┐  ┌──────────┐  ┌──────────┐
+   │ Server A │  │ Server B │  │ Server C │
+   │ (user 1) │  │ (user 2) │  │ (user 1) │
+   └──────────┘  └──────────┘  └──────────┘
+```
 
 **How It Works**:
 
-1. **Gate** (Minecraft proxy) runs in Lite mode with fallback configuration
-2. Player adds `localhost:25565` to their Minecraft server list
-3. Gate forwards the status ping to the backend server
-4. If the backend is offline, Gate returns a custom fallback response:
+1. **Gate** (Minecraft proxy) runs in Lite mode with dynamic host-based routing
+2. API server automatically generates Gate config with routes for each server
+3. Player adds `{server-name}.local:25565` to their Minecraft server list (e.g., `mc-a78e5e3d10e3.local`)
+4. Player must add a hosts file entry mapping `{server-name}.local` to `127.0.0.1`
+5. Gate routes the ping to the correct backend based on hostname
+6. If the backend is offline, Gate returns a custom fallback response:
    - Custom MOTD: "Server is offline / Start it from the dashboard!"
    - Custom version text: "Offline"
-   - Custom favicon (server icon)
-5. Player sees this in their server list without connecting
-6. Player starts server via web dashboard, then connects
+7. Player sees this in their server list without connecting
+8. Player starts server via web dashboard, then connects
 
-**Gate Configuration** (`k8s/manifests/dev/gate.yaml`):
+**Dynamic Gate Configuration**:
+
+The API server automatically updates the Gate ConfigMap when servers are created or deleted. Routes are generated per-server with host-based matching.
+
+**Generated Config Example** (`k8s/manifests/dev/gate.yaml`):
 
 ```yaml
+# NOTE: This ConfigMap is auto-managed by the API server.
+# Routes are dynamically generated for each Minecraft server on create/delete.
 config:
   bind: 0.0.0.0:25565
   lite:
     enabled: true
     routes:
-      - host: '*'
-        backend: hehe.minecraft-servers.svc.cluster.local:25565
+      # Route for mc-a78e5e3d10e3 (test server)
+      - host: 'mc-a78e5e3d10e3.*'
+        backend: mc-a78e5e3d10e3.minecraft-servers.svc.cluster.local:25565
         fallback:
           motd: |
-            §cServer is offline
+            §ctest is offline
             §eStart it from the dashboard!
           version:
             name: '§cOffline'
             protocol: -1
-          favicon: 'data:image/png;base64,...' # 64x64 PNG
+      # Route for mc-b92f7c8d1e4a (production server)
+      - host: 'mc-b92f7c8d1e4a.*'
+        backend: mc-b92f7c8d1e4a.minecraft-servers.svc.cluster.local:25565
+        fallback:
+          motd: |
+            §cproduction is offline
+            §eStart it from the dashboard!
+          version:
+            name: '§cOffline'
+            protocol: -1
+      # Catch-all for unknown hosts
+      - host: '*'
+        backend: localhost:25565
+        fallback:
+          motd: |
+            §cNo server found
+            §7Add server hostname to your hosts file
+          version:
+            name: '§7Unknown Host'
+            protocol: -1
+```
+
+**API Server Route Management** (`api-server/src/k8s-client.ts`):
+
+```typescript
+// Called on server create, delete, and API startup
+async updateGateRoutes(): Promise<void> {
+  const servers = await this.listMinecraftServers();
+
+  // Generate routes for each server
+  const routes = servers.map((server) => ({
+    host: `${server.name}.*`,
+    backend: `${server.name}.${this.namespace}.svc.cluster.local:25565`,
+    fallback: {
+      motd: `§c${server.displayName || server.name} is offline\n§eStart it from the dashboard!`,
+      version: { name: '§cOffline', protocol: -1 },
+    },
+  }));
+
+  // Update ConfigMap and restart Gate pods
+  await this.coreApi.replaceNamespacedConfigMap({...});
+  await this.restartGateDeployment();
+}
 ```
 
 **Minecraft Color Codes**:
@@ -201,6 +271,9 @@ config:
 - `§c` = Red text
 - `§e` = Yellow text
 - `§a` = Green text
+- `§7` = Gray text
+
+**Gate Lite Mode Limitation**: Gate Lite only handles server list pings (MOTD display). When a player clicks "Connect" on a stopped server, they will see "Disconnected" rather than a custom message. Custom disconnect messages would require Gate's full mode with more complex configuration.
 
 **Note**: Unlike auto-start (wake-on-connect), this approach requires players to manually start servers from the dashboard. This is intentional to give users full control over when their servers run.
 
@@ -298,11 +371,11 @@ spec:
     additionalProperties: map[string]string
 
   autoStop:
-    enabled: bool
-    idleTimeoutMinutes: int # 1-1440
+    enabled: bool # Always true - not user-configurable
+    idleTimeoutMinutes: int # Always 2 - not user-configurable
 
   autoStart:
-    enabled: bool
+    enabled: bool # Not currently implemented
 ```
 
 ### Status Fields
@@ -331,7 +404,8 @@ status:
 
 - Minikube or Docker Desktop Kubernetes
 - kubectl configured
-- mc-router deployed in `minecraft-servers` namespace
+- Gate proxy (lightweight Minecraft proxy)
+- Access to hosts file for local testing
 
 ### Start the Platform
 
@@ -345,7 +419,7 @@ kubectl create namespace minecraft-servers
 # 3. Apply CRDs
 kubectl apply -f k8s/operator/config/crd/
 
-# 4. Deploy Gate proxy
+# 4. Deploy Gate proxy (config is auto-managed by API server)
 kubectl apply -f k8s/manifests/dev/gate.yaml
 
 # 5. Start operator (local)
@@ -368,30 +442,69 @@ cd frontend && npm run dev
 kubectl port-forward -n minecraft-servers svc/gate 25565:25565
 ```
 
-### Testing Offline MOTD
+### Testing Offline MOTD with Host-Based Routing
+
+**Step 1: Create a server and note its name**
 
 ```bash
-# 1. Create a server
-curl -X POST http://localhost:3000/api/v1/servers \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "test-server",
-    "autoStop": {"enabled": true, "idleTimeoutMinutes": 3}
-  }'
-
-# 2. Stop the server
-curl -X PUT http://localhost:3000/api/v1/servers/test-server/stop
-
-# 3. Add localhost:25565 to Minecraft server list
-# - You'll see custom MOTD: "Server is offline / Start it from the dashboard!"
-# - Server shows as "Offline" in version text
-# - Custom icon displayed
-
-# 4. Start server via API or dashboard
-curl -X PUT http://localhost:3000/api/v1/servers/test-server/start
-
-# 5. Wait ~60s for server to start, then connect
+# Create a server via frontend dashboard or API
+# Note the server's K8s resource name (e.g., mc-a78e5e3d10e3)
+# This is shown in the server list and is derived from the server's UUID
 ```
+
+**Step 2: Add hosts file entry for your server**
+
+The server name follows the pattern `mc-{first-12-chars-of-uuid}`.
+
+**Windows** (run as Administrator):
+
+```cmd
+# Edit C:\Windows\System32\drivers\etc\hosts
+# Add entry:
+127.0.0.1 mc-a78e5e3d10e3.local
+```
+
+**Linux/Mac**:
+
+```bash
+# Edit /etc/hosts
+sudo echo "127.0.0.1 mc-a78e5e3d10e3.local" >> /etc/hosts
+```
+
+**Step 3: Stop the server and test MOTD**
+
+```bash
+# Stop the server via dashboard or API
+curl -X POST http://localhost:8080/api/v1/servers/{server-uuid}/stop
+```
+
+**Step 4: Add server to Minecraft**
+
+1. Open Minecraft Java Edition
+2. Go to Multiplayer → Add Server
+3. Enter server address: `mc-a78e5e3d10e3.local:25565`
+4. Save and check server list
+
+**Expected Results**:
+
+- When server is **stopped**: MOTD shows "Server is offline / Start it from the dashboard!" in red/yellow
+- When server is **running**: Normal MOTD from server, can connect and play
+- When hostname **not in hosts file**: MOTD shows "No server found / Add server hostname to your hosts file"
+
+**Step 5: Start server and connect**
+
+1. Start server from web dashboard
+2. Wait ~60s for server to initialize
+3. Click "Join Server" in Minecraft
+
+### Why Host-Based Routing?
+
+Host-based routing enables:
+
+- **Multi-tenant support**: Each user's server has a unique hostname
+- **Resource efficiency**: One Gate instance serves all servers
+- **Simple scaling**: New servers automatically get routes added
+- **Isolated access**: Players can only see/connect to servers they know about
 
 ## Troubleshooting
 
@@ -403,30 +516,55 @@ curl -X PUT http://localhost:3000/api/v1/servers/test-server/start
 
 ### Offline MOTD Not Showing
 
-1. Verify Gate proxy is running:
+1. **Check hosts file entry exists**:
+   - Windows: `C:\Windows\System32\drivers\etc\hosts`
+   - Linux/Mac: `/etc/hosts`
+   - Entry should map `{server-name}.local` to `127.0.0.1`
+
+2. **Verify server address in Minecraft matches hosts file**:
+   - Address should be `mc-{uuid12}.local:25565` (e.g., `mc-a78e5e3d10e3.local:25565`)
+
+3. **Verify Gate proxy is running**:
+
    ```bash
    kubectl get pods -n minecraft-servers -l app=gate
    ```
-2. Check Gate logs for backend connection:
+
+4. **Check Gate logs for routing**:
+
    ```bash
    kubectl logs -n minecraft-servers deployment/gate --tail=50
    ```
-3. Ensure port forwarding is active:
+
+5. **Ensure port forwarding is active**:
+
    ```bash
    kubectl port-forward -n minecraft-servers svc/gate 25565:25565
    ```
-4. Verify Gate config has correct backend address:
+
+6. **Verify Gate config has correct routes**:
+
    ```bash
    kubectl get configmap gate-config -n minecraft-servers -o yaml
+   # Should show routes for each server with host patterns like "mc-xxx.*"
    ```
 
+7. **If seeing "No server found" MOTD**:
+   - The hostname isn't matching any server route
+   - Verify the server name exactly matches the route pattern
+   - Check if the server was created after Gate config was last updated
+
 ### Auto-Stop Not Triggering
+
+Auto-stop is **always enabled** with a fixed 2-minute idle timeout. This is not user-configurable.
 
 1. Verify RCON connection (operator must connect to get player count)
 2. Check `lastPlayerActivity` in server status:
    ```bash
    kubectl get mcserver <name> -n minecraft-servers -o yaml | grep lastPlayerActivity
    ```
+3. Ensure server is actually running (auto-stop only applies to running servers)
+4. Verify no players are connected: `kubectl logs deployment/operator -n minecraft-system | grep "player count"`
 
 ---
 

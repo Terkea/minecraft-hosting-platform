@@ -173,6 +173,7 @@ export const DEFAULT_SKUS: SKUConfiguration[] = [
 export interface BackupSnapshot {
   id: string;
   serverId: string;
+  serverName: string; // K8s resource name (e.g., mc-490c4084faaa) - needed for PVC mounting
   tenantId: string;
   name: string;
   description?: string;

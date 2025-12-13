@@ -19,6 +19,7 @@ When a user deletes a Minecraft server, the platform performs comprehensive clea
 | PVC (World Data)      | **Explicitly deleted**         | Yes                        |
 | Backup Records (DB)   | **Soft-deleted**               | No (audit trail preserved) |
 | Backup Schedules (DB) | **Soft-deleted**               | No (audit trail preserved) |
+| Gate Proxy Route      | **Removed from ConfigMap**     | Yes                        |
 | Google Drive Files    | **Preserved**                  | N/A                        |
 
 ## Architecture
@@ -43,7 +44,8 @@ User clicks "Delete Server" in UI
 │  2. Delete MinecraftServer CRD          │
 │  3. Delete PVC (world data)             │
 │  4. Soft-delete backup records          │
-│  5. Broadcast WebSocket event           │
+│  5. Update Gate proxy routes            │
+│  6. Broadcast WebSocket event           │
 └─────────────────────────────────────────┘
            │
            ├──────────────────────────────┐

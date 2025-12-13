@@ -517,7 +517,8 @@ export class BackupService {
                   name: 'minecraft-data',
                   persistentVolumeClaim: {
                     // StatefulSet PVC naming: <volumeClaimTemplate-name>-<pod-name>
-                    claimName: `minecraft-data-${backup.serverId}-0`,
+                    // Pod name follows server's K8s resource name (e.g., mc-490c4084faaa-0)
+                    claimName: `minecraft-data-${backup.serverName}-0`,
                   },
                 },
                 {
