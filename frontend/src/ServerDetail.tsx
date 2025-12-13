@@ -104,8 +104,8 @@ const TABS: { id: Tab; label: string; icon: typeof Activity }[] = [
 ];
 
 export function ServerDetail({ connected }: ServerDetailProps) {
-  const { serverName, tab, playerName } = useParams<{
-    serverName: string;
+  const { serverId, tab, playerName } = useParams<{
+    serverId: string;
     tab?: string;
     playerName?: string;
   }>();
@@ -157,12 +157,12 @@ export function ServerDetail({ connected }: ServerDetailProps) {
 
   // Handle player selection from URL - fetch detailed data
   useEffect(() => {
-    if (playerName && serverName) {
+    if (playerName && serverId) {
       // Fetch detailed player data when navigating to player view
       const fetchPlayerDetails = async () => {
         try {
           setPlayersLoading(true);
-          const playerData = await getPlayerDetails(serverName, playerName);
+          const playerData = await getPlayerDetails(serverId, playerName);
           setSelectedPlayer(playerData);
         } catch (err) {
           console.error('Failed to fetch player details:', err);
@@ -175,13 +175,13 @@ export function ServerDetail({ connected }: ServerDetailProps) {
     } else if (!playerName) {
       setSelectedPlayer(null);
     }
-  }, [playerName, serverName]);
+  }, [playerName, serverId]);
 
   // Initial data load
   useEffect(() => {
     void loadServerData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [serverName]);
+  }, [serverId]);
 
   // Refresh data periodically - only fetch what's needed for the active tab
   useEffect(() => {
@@ -201,15 +201,15 @@ export function ServerDetail({ connected }: ServerDetailProps) {
 
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [serverName, activeTab, playerName]);
+  }, [serverId, activeTab, playerName]);
 
   // Refresh player details periodically when viewing a specific player
   useEffect(() => {
-    if (!playerName || !serverName) return;
+    if (!playerName || !serverId) return;
 
     const interval = setInterval(async () => {
       try {
-        const playerData = await getPlayerDetails(serverName, playerName);
+        const playerData = await getPlayerDetails(serverId, playerName);
         setSelectedPlayer(playerData);
       } catch (err) {
         console.error('Failed to refresh player details:', err);
@@ -217,7 +217,7 @@ export function ServerDetail({ connected }: ServerDetailProps) {
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [serverName, playerName]);
+  }, [serverId, playerName]);
 
   // Auto-scroll console
   useEffect(() => {
@@ -228,20 +228,20 @@ export function ServerDetail({ connected }: ServerDetailProps) {
 
   // Redirect to valid tab if invalid
   useEffect(() => {
-    if (tab && !isValidTab && serverName) {
-      void navigate(`/servers/${serverName}/overview`, { replace: true });
+    if (tab && !isValidTab && serverId) {
+      void navigate(`/servers/${serverId}/overview`, { replace: true });
     }
-  }, [tab, isValidTab, serverName, navigate]);
+  }, [tab, isValidTab, serverId, navigate]);
 
   const loadServerData = async () => {
-    if (!serverName) return;
+    if (!serverId) return;
     setIsLoading(true);
     try {
       const [serverData, metricsData, podData, logsData] = await Promise.all([
-        getServer(serverName),
-        getServerMetrics(serverName).catch(() => null),
-        getPodStatus(serverName).catch(() => null),
-        getServerLogs(serverName, 100).catch(() => [] as string[]),
+        getServer(serverId),
+        getServerMetrics(serverId).catch(() => null),
+        getPodStatus(serverId).catch(() => null),
+        getServerLogs(serverId, 100).catch(() => [] as string[]),
       ]);
 
       setServer(serverData);
@@ -269,12 +269,12 @@ export function ServerDetail({ connected }: ServerDetailProps) {
   };
 
   const refreshMetrics = async () => {
-    if (!serverName) return;
+    if (!serverId) return;
     try {
       const [serverData, metricsData, podData] = await Promise.all([
-        getServer(serverName),
-        getServerMetrics(serverName).catch(() => null),
-        getPodStatus(serverName).catch(() => null),
+        getServer(serverId),
+        getServerMetrics(serverId).catch(() => null),
+        getPodStatus(serverId).catch(() => null),
       ]);
 
       setServer(serverData);
@@ -288,9 +288,9 @@ export function ServerDetail({ connected }: ServerDetailProps) {
   const MAX_LOG_ENTRIES = 500; // Keep only the last 500 entries
 
   const refreshLogs = async () => {
-    if (!serverName) return;
+    if (!serverId) return;
     try {
-      const logsData = await getServerLogs(serverName, 200);
+      const logsData = await getServerLogs(serverId, 200);
       if (logsData.length > lastLogCount) {
         const newLogs = logsData.slice(lastLogCount);
         setConsoleEntries((prev) => {
@@ -320,10 +320,10 @@ export function ServerDetail({ connected }: ServerDetailProps) {
 
   // Fetch log files list
   const fetchLogFiles = async () => {
-    if (!serverName) return;
+    if (!serverId) return;
     setLoadingLogFiles(true);
     try {
-      const data = await getLogFiles(serverName);
+      const data = await getLogFiles(serverId);
       setLogFiles(data.files);
     } catch (err) {
       console.error('Failed to fetch log files:', err);
@@ -334,11 +334,11 @@ export function ServerDetail({ connected }: ServerDetailProps) {
 
   // Fetch content of a specific log file
   const fetchLogFileContent = async (filename: string) => {
-    if (!serverName) return;
+    if (!serverId) return;
     setLoadingFileContent(true);
     setSelectedLogFile(filename);
     try {
-      const content = await getLogFileContent(serverName, filename, 1000);
+      const content = await getLogFileContent(serverId, filename, 1000);
       setSelectedFileContent(content);
     } catch (err) {
       console.error('Failed to fetch log file content:', err);
@@ -363,7 +363,7 @@ export function ServerDetail({ connected }: ServerDetailProps) {
   };
 
   const fetchPlayers = async (showLoading = false) => {
-    if (!serverName || playersFetchingRef.current || server?.phase?.toLowerCase() !== 'running')
+    if (!serverId || playersFetchingRef.current || server?.phase?.toLowerCase() !== 'running')
       return;
 
     playersFetchingRef.current = true;
@@ -372,7 +372,7 @@ export function ServerDetail({ connected }: ServerDetailProps) {
     }
 
     try {
-      const data = await getServerPlayers(serverName);
+      const data = await getServerPlayers(serverId);
       setPlayersData(data);
       // Note: Selected player details are fetched separately via getPlayerDetails
     } catch {
@@ -386,10 +386,10 @@ export function ServerDetail({ connected }: ServerDetailProps) {
   };
 
   const handleStopServer = async () => {
-    if (!serverName) return;
+    if (!serverId) return;
     setIsTogglingServer(true);
     try {
-      await stopServer(serverName);
+      await stopServer(serverId);
       setServer((prev) => (prev ? { ...prev, phase: 'Stopping' } : null));
     } catch (err: any) {
       setError(err.message || 'Failed to stop server');
@@ -399,10 +399,10 @@ export function ServerDetail({ connected }: ServerDetailProps) {
   };
 
   const handleStartServer = async () => {
-    if (!serverName) return;
+    if (!serverId) return;
     setIsTogglingServer(true);
     try {
-      await startServer(serverName);
+      await startServer(serverId);
       setServer((prev) => (prev ? { ...prev, phase: 'Starting' } : null));
     } catch (err: any) {
       setError(err.message || 'Failed to start server');
@@ -413,7 +413,7 @@ export function ServerDetail({ connected }: ServerDetailProps) {
 
   const handleExecuteCommand = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!serverName || !command.trim() || isExecutingCommand) return;
+    if (!serverId || !command.trim() || isExecutingCommand) return;
 
     setIsExecutingCommand(true);
     const cmd = command.trim();
@@ -426,7 +426,7 @@ export function ServerDetail({ connected }: ServerDetailProps) {
     ]);
 
     try {
-      const result = await executeCommand(serverName, cmd);
+      const result = await executeCommand(serverId, cmd);
       setConsoleEntries((prev) => [
         ...prev,
         {
@@ -472,19 +472,19 @@ export function ServerDetail({ connected }: ServerDetailProps) {
 
   const handlePlayerSelect = (playerName: string) => {
     // Navigate to player page - details will be fetched by useEffect
-    void navigate(`/servers/${serverName}/players/${playerName}`);
+    void navigate(`/servers/${serverId}/players/${playerName}`);
   };
 
   const handlePlayerBack = () => {
     setSelectedPlayer(null);
-    void navigate(`/servers/${serverName}/players`);
+    void navigate(`/servers/${serverId}/players`);
   };
 
   const refreshSelectedPlayer = async () => {
-    if (!serverName || !playerName) return;
+    if (!serverId || !playerName) return;
     setPlayersLoading(true);
     try {
-      const playerData = await getPlayerDetails(serverName, playerName);
+      const playerData = await getPlayerDetails(serverId, playerName);
       setSelectedPlayer(playerData);
     } catch (err) {
       console.error('Failed to refresh player details:', err);
@@ -538,7 +538,7 @@ export function ServerDetail({ connected }: ServerDetailProps) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${serverName}-logs-${new Date().toISOString().split('T')[0]}.txt`;
+    a.download = `${server?.displayName || serverId}-logs-${new Date().toISOString().split('T')[0]}.txt`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -613,7 +613,7 @@ export function ServerDetail({ connected }: ServerDetailProps) {
                   <Server className="w-6 h-6 text-white" />
                 </div>
                 <div>
-                  <h1 className="text-xl font-bold text-white">{server.name}</h1>
+                  <h1 className="text-xl font-bold text-white">{server.displayName}</h1>
                   <div className="flex items-center gap-2">
                     <span
                       className={`px-2 py-0.5 rounded-full text-xs font-medium text-white ${getStatusColor(server.phase)}`}
@@ -680,7 +680,7 @@ export function ServerDetail({ connected }: ServerDetailProps) {
             {TABS.map(({ id, label, icon: Icon }) => (
               <Link
                 key={id}
-                to={`/servers/${serverName}/${id}`}
+                to={`/servers/${serverId}/${id}`}
                 className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
                   activeTab === id
                     ? 'border-green-500 text-green-400'
@@ -1300,7 +1300,7 @@ export function ServerDetail({ connected }: ServerDetailProps) {
               <div className="p-6">
                 <PlayerView
                   player={selectedPlayer}
-                  serverName={serverName!}
+                  serverId={serverId!}
                   onBack={handlePlayerBack}
                   onRefresh={refreshSelectedPlayer}
                   isLoading={playersLoading}
@@ -1396,14 +1396,14 @@ export function ServerDetail({ connected }: ServerDetailProps) {
 
         {activeTab === 'management' && (
           <PlayerManagement
-            serverName={serverName!}
+            serverId={serverId!}
             isRunning={server.phase?.toLowerCase() === 'running'}
           />
         )}
 
         {activeTab === 'backups' && (
           <BackupManager
-            serverName={serverName!}
+            serverId={serverId!}
             isRunning={server.phase?.toLowerCase() === 'running'}
           />
         )}

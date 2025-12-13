@@ -38,6 +38,7 @@ rules:
     resources:
       - pods
       - pods/log
+      - pods/exec
       - services
       - configmaps
       - secrets

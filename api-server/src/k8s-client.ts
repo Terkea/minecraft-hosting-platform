@@ -1,6 +1,7 @@
 import * as k8s from '@kubernetes/client-node';
 import { Writable, PassThrough } from 'stream';
 import { randomBytes } from 'crypto';
+import { v4 as uuidv4 } from 'uuid';
 import { rconPool } from './utils/rcon-pool.js';
 
 // Generate a secure random RCON password (24 characters)
@@ -35,6 +36,7 @@ export type LevelType = 'default' | 'flat' | 'largeBiomes' | 'amplified' | 'sing
 
 export interface MinecraftServerSpec {
   serverId: string;
+  displayName: string;
   tenantId: string;
   stopped?: boolean;
   image?: string;
@@ -89,7 +91,9 @@ export interface MinecraftServerSpec {
 }
 
 export interface MinecraftServerStatus {
-  name: string;
+  id: string; // UUID - primary identifier
+  name: string; // K8s resource name (mc-{uuid-prefix})
+  displayName: string; // User-friendly name
   namespace: string;
   tenantId?: string;
   phase: string;
@@ -187,10 +191,16 @@ export class K8sClient {
   }
 
   async createMinecraftServer(
-    name: string,
+    displayName: string,
     spec: Partial<MinecraftServerSpec>
   ): Promise<MinecraftServerStatus> {
     this.ensureAvailable();
+
+    // Generate UUID for this server
+    const serverId = uuidv4();
+
+    // Create K8s-safe resource name: mc-{first 12 chars of uuid without dashes}
+    const resourceName = `mc-${serverId.replace(/-/g, '').substring(0, 12)}`;
 
     // Default config with all fields
     const defaultConfig: MinecraftServerSpec['config'] = {
@@ -230,7 +240,8 @@ export class K8sClient {
     };
 
     const serverSpec: MinecraftServerSpec = {
-      serverId: spec.serverId || name,
+      serverId: serverId,
+      displayName: displayName,
       tenantId: spec.tenantId || 'default-tenant',
       image: spec.image || 'itzg/minecraft-server:latest',
       serverType: spec.serverType || 'VANILLA',
@@ -251,7 +262,7 @@ export class K8sClient {
       apiVersion: `${this.group}/${this.version}`,
       kind: 'MinecraftServer',
       metadata: {
-        name: this.sanitizeName(name),
+        name: resourceName,
         namespace: this.namespace,
       },
       spec: serverSpec,
@@ -270,10 +281,28 @@ export class K8sClient {
       return this.parseServerStatus(created);
     } catch (error: any) {
       if (error.response?.statusCode === 409) {
-        throw new Error(`Server '${name}' already exists`);
+        throw new Error(`Server '${displayName}' already exists`);
       }
       throw error;
     }
+  }
+
+  // Get server by UUID (primary lookup method)
+  async getMinecraftServerById(serverId: string): Promise<MinecraftServerStatus | null> {
+    this.ensureAvailable();
+    try {
+      // List all servers and find by serverId (UUID)
+      const servers = await this.listMinecraftServers();
+      return servers.find((s) => s.id === serverId) || null;
+    } catch (error: any) {
+      throw error;
+    }
+  }
+
+  // Get the K8s resource name for a server by its UUID
+  async getResourceNameById(serverId: string): Promise<string | null> {
+    const server = await this.getMinecraftServerById(serverId);
+    return server?.name || null;
   }
 
   async listMinecraftServers(): Promise<MinecraftServerStatus[]> {
@@ -352,6 +381,31 @@ export class K8sClient {
       if (error.response?.statusCode === 404) {
         throw new Error(`Server '${name}' not found`);
       }
+      throw error;
+    }
+  }
+
+  /**
+   * Delete the PVC (Persistent Volume Claim) for a server.
+   * This permanently removes the world data storage.
+   * The PVC name follows pattern: minecraft-data-{server-name}-0
+   */
+  async deleteServerPVC(name: string): Promise<boolean> {
+    this.ensureAvailable();
+    const pvcName = `minecraft-data-${name}-0`;
+    try {
+      await this.coreApi!.deleteNamespacedPersistentVolumeClaim({
+        name: pvcName,
+        namespace: this.namespace,
+      });
+      console.log(`[K8sClient] Deleted PVC: ${pvcName}`);
+      return true;
+    } catch (error: any) {
+      if (error.response?.statusCode === 404) {
+        console.log(`[K8sClient] PVC not found (already deleted): ${pvcName}`);
+        return false;
+      }
+      console.error(`[K8sClient] Failed to delete PVC ${pvcName}:`, error.message);
       throw error;
     }
   }
@@ -864,7 +918,9 @@ export class K8sClient {
 
   private parseServerStatus(server: MinecraftServer): MinecraftServerStatus {
     return {
-      name: server.metadata.name,
+      id: server.spec.serverId, // UUID as primary identifier
+      name: server.metadata.name, // K8s resource name
+      displayName: server.spec.displayName || server.metadata.name, // User-friendly name (fallback to k8s name for migration)
       namespace: server.metadata.namespace,
       tenantId: server.spec.tenantId,
       phase: server.status?.phase || 'Pending',

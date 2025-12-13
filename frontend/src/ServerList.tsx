@@ -14,6 +14,10 @@ import {
   Play,
   ChevronDown,
   ChevronRight,
+  AlertTriangle,
+  HardDrive,
+  Database,
+  Cloud,
 } from 'lucide-react';
 import { createServer, deleteServer, listServers, stopServer, startServer } from './api';
 import type {
@@ -35,6 +39,10 @@ export function ServerList({ servers, connected, setServers }: ServerListProps) 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copiedServer, setCopiedServer] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; displayName: string } | null>(
+    null
+  );
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const handleRefresh = async () => {
     setIsLoading(true);
@@ -49,32 +57,38 @@ export function ServerList({ servers, connected, setServers }: ServerListProps) 
     }
   };
 
-  const handleDelete = async (name: string) => {
-    if (!confirm(`Are you sure you want to delete server "${name}"?`)) {
-      return;
-    }
+  const handleDeleteClick = (id: string, displayName: string) => {
+    setDeleteConfirm({ id, displayName });
+  };
 
+  const handleDeleteConfirm = async () => {
+    if (!deleteConfirm) return;
+
+    setIsDeleting(true);
     try {
-      await deleteServer(name);
-      setServers((prev) => prev.filter((s) => s.name !== name));
+      await deleteServer(deleteConfirm.id);
+      setServers((prev) => prev.filter((s) => s.id !== deleteConfirm.id));
+      setDeleteConfirm(null);
     } catch (err) {
       setError(`Failed to delete server: ${err}`);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
-  const handleStop = async (name: string) => {
+  const handleStop = async (id: string) => {
     try {
-      await stopServer(name);
-      setServers((prev) => prev.map((s) => (s.name === name ? { ...s, phase: 'Stopping' } : s)));
+      await stopServer(id);
+      setServers((prev) => prev.map((s) => (s.id === id ? { ...s, phase: 'Stopping' } : s)));
     } catch (err) {
       setError(`Failed to stop server: ${err}`);
     }
   };
 
-  const handleStart = async (name: string) => {
+  const handleStart = async (id: string) => {
     try {
-      await startServer(name);
-      setServers((prev) => prev.map((s) => (s.name === name ? { ...s, phase: 'Starting' } : s)));
+      await startServer(id);
+      setServers((prev) => prev.map((s) => (s.id === id ? { ...s, phase: 'Starting' } : s)));
     } catch (err) {
       setError(`Failed to start server: ${err}`);
     }
@@ -85,7 +99,7 @@ export function ServerList({ servers, connected, setServers }: ServerListProps) 
       server.externalIP && server.port ? `${server.externalIP}:${server.port}` : 'Not available';
 
     void navigator.clipboard.writeText(connectionString);
-    setCopiedServer(server.name);
+    setCopiedServer(server.id);
     setTimeout(() => setCopiedServer(null), 2000);
   };
 
@@ -182,12 +196,12 @@ export function ServerList({ servers, connected, setServers }: ServerListProps) 
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {servers.map((server) => (
               <div
-                key={server.name}
+                key={server.id}
                 className="bg-gray-800/50 backdrop-blur border border-gray-700 rounded-xl p-5 hover:border-gray-600 transition-colors"
               >
                 <div className="flex items-start justify-between mb-4">
                   <div>
-                    <h3 className="text-lg font-semibold text-white">{server.name}</h3>
+                    <h3 className="text-lg font-semibold text-white">{server.displayName}</h3>
                     <p className="text-sm text-gray-400">{server.version || 'Unknown version'}</p>
                   </div>
                   <span
@@ -215,7 +229,7 @@ export function ServerList({ servers, connected, setServers }: ServerListProps) 
                         className="flex items-center gap-1.5 text-green-400 hover:text-green-300 transition-colors"
                       >
                         {server.externalIP}:{server.port}
-                        {copiedServer === server.name ? (
+                        {copiedServer === server.id ? (
                           <Check className="w-4 h-4" />
                         ) : (
                           <Copy className="w-4 h-4" />
@@ -227,7 +241,7 @@ export function ServerList({ servers, connected, setServers }: ServerListProps) 
 
                 <div className="flex gap-2 pt-4 border-t border-gray-700">
                   <button
-                    onClick={() => navigate(`/servers/${server.name}`)}
+                    onClick={() => navigate(`/servers/${server.id}`)}
                     className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-green-500/20 hover:bg-green-500/30 text-green-400 rounded-lg transition-colors"
                   >
                     <Eye className="w-4 h-4" />
@@ -235,7 +249,7 @@ export function ServerList({ servers, connected, setServers }: ServerListProps) 
                   </button>
                   {server.phase?.toLowerCase() === 'stopped' ? (
                     <button
-                      onClick={() => handleStart(server.name)}
+                      onClick={() => handleStart(server.id)}
                       className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-lg transition-colors"
                     >
                       <Play className="w-4 h-4" />
@@ -260,7 +274,7 @@ export function ServerList({ servers, connected, setServers }: ServerListProps) 
                     </button>
                   ) : (
                     <button
-                      onClick={() => handleStop(server.name)}
+                      onClick={() => handleStop(server.id)}
                       className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-400 rounded-lg transition-colors"
                     >
                       <Square className="w-4 h-4" />
@@ -268,7 +282,7 @@ export function ServerList({ servers, connected, setServers }: ServerListProps) 
                     </button>
                   )}
                   <button
-                    onClick={() => handleDelete(server.name)}
+                    onClick={() => handleDeleteClick(server.id, server.displayName)}
                     className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg transition-colors"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -291,6 +305,92 @@ export function ServerList({ servers, connected, setServers }: ServerListProps) 
           }}
           onError={setError}
         />
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-800 border border-gray-700 rounded-xl w-full max-w-md overflow-hidden">
+            <div className="p-6 border-b border-gray-700">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-red-500/20 rounded-lg">
+                  <AlertTriangle className="w-6 h-6 text-red-400" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-white">Delete Server</h2>
+                  <p className="text-sm text-gray-400">This action cannot be undone</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <p className="text-gray-300">
+                Are you sure you want to delete{' '}
+                <span className="font-semibold text-white">"{deleteConfirm.displayName}"</span>?
+              </p>
+
+              <div className="bg-gray-700/50 rounded-lg p-4 space-y-3">
+                <p className="text-sm font-medium text-gray-300">
+                  The following will be permanently deleted:
+                </p>
+
+                <div className="space-y-2">
+                  <div className="flex items-center gap-3 text-sm">
+                    <HardDrive className="w-4 h-4 text-red-400" />
+                    <span className="text-gray-300">World data and server files (PVC storage)</span>
+                  </div>
+                  <div className="flex items-center gap-3 text-sm">
+                    <Server className="w-4 h-4 text-red-400" />
+                    <span className="text-gray-300">Server configuration and settings</span>
+                  </div>
+                  <div className="flex items-center gap-3 text-sm">
+                    <Database className="w-4 h-4 text-yellow-400" />
+                    <span className="text-gray-300">Backup records (marked as deleted)</span>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-gray-600">
+                  <div className="flex items-center gap-3 text-sm">
+                    <Cloud className="w-4 h-4 text-green-400" />
+                    <span className="text-gray-400">
+                      Google Drive backup files will be preserved
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6 border-t border-gray-700 bg-gray-800">
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setDeleteConfirm(null)}
+                  disabled={isDeleting}
+                  className="flex-1 px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-700/50 text-white rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDeleteConfirm}
+                  disabled={isDeleting}
+                  className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-red-600/50 text-white rounded-lg transition-colors flex items-center justify-center gap-2"
+                >
+                  {isDeleting ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      Deleting...
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-4 h-4" />
+                      Delete Server
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

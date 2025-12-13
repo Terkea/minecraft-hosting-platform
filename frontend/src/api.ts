@@ -197,9 +197,9 @@ export async function createServer(request: CreateServerRequest): Promise<Server
   return data.server;
 }
 
-export async function getServer(name: string): Promise<Server> {
+export async function getServer(id: string): Promise<Server> {
   const makeRequest = async () =>
-    fetch(`${API_BASE}/servers/${name}`, {
+    fetch(`${API_BASE}/servers/${id}`, {
       headers: await getAuthHeaders(),
     });
 
@@ -210,9 +210,9 @@ export async function getServer(name: string): Promise<Server> {
   return response.json();
 }
 
-export async function deleteServer(name: string): Promise<void> {
+export async function deleteServer(id: string): Promise<void> {
   const makeRequest = async () =>
-    fetch(`${API_BASE}/servers/${name}`, {
+    fetch(`${API_BASE}/servers/${id}`, {
       method: 'DELETE',
       headers: await getAuthHeaders(),
     });
@@ -224,9 +224,9 @@ export async function deleteServer(name: string): Promise<void> {
   }
 }
 
-export async function getServerLogs(name: string, lines: number = 100): Promise<string[]> {
+export async function getServerLogs(id: string, lines: number = 100): Promise<string[]> {
   const makeRequest = async () =>
-    fetch(`${API_BASE}/servers/${name}/logs?lines=${lines}`, {
+    fetch(`${API_BASE}/servers/${id}/logs?lines=${lines}`, {
       headers: await getAuthHeaders(),
     });
 
@@ -248,14 +248,14 @@ export interface LogFile {
 }
 
 export interface LogFilesResponse {
-  serverName: string;
+  serverId: string;
   files: LogFile[];
   count: number;
 }
 
-export async function getLogFiles(name: string): Promise<LogFilesResponse> {
+export async function getLogFiles(id: string): Promise<LogFilesResponse> {
   const makeRequest = async () =>
-    fetch(`${API_BASE}/servers/${name}/logs/files`, {
+    fetch(`${API_BASE}/servers/${id}/logs/files`, {
       headers: await getAuthHeaders(),
     });
 
@@ -267,12 +267,12 @@ export async function getLogFiles(name: string): Promise<LogFilesResponse> {
 }
 
 export async function getLogFileContent(
-  name: string,
+  id: string,
   filename: string,
   lines: number = 500
 ): Promise<string[]> {
   const makeRequest = async () =>
-    fetch(`${API_BASE}/servers/${name}/logs/files/${encodeURIComponent(filename)}?lines=${lines}`, {
+    fetch(`${API_BASE}/servers/${id}/logs/files/${encodeURIComponent(filename)}?lines=${lines}`, {
       headers: await getAuthHeaders(),
     });
 
@@ -285,7 +285,7 @@ export async function getLogFileContent(
 }
 
 export interface ServerMetricsResponse {
-  serverName: string;
+  serverId: string;
   metrics: {
     cpu?: { usage: string; usageNano: number; limit?: string; limitNano?: number };
     memory?: { usage: string; usageBytes: number; limit?: string; limitBytes?: number };
@@ -297,9 +297,9 @@ export interface ServerMetricsResponse {
   };
 }
 
-export async function getServerMetrics(name: string): Promise<ServerMetricsResponse> {
+export async function getServerMetrics(id: string): Promise<ServerMetricsResponse> {
   const makeRequest = async () =>
-    fetch(`${API_BASE}/servers/${name}/metrics`, {
+    fetch(`${API_BASE}/servers/${id}/metrics`, {
       headers: await getAuthHeaders(),
     });
 
@@ -318,9 +318,9 @@ export interface PodStatus {
   conditions: Array<{ type: string; status: string; reason?: string; message?: string }>;
 }
 
-export async function getPodStatus(name: string): Promise<PodStatus> {
+export async function getPodStatus(id: string): Promise<PodStatus> {
   const makeRequest = async () =>
-    fetch(`${API_BASE}/servers/${name}/pod`, {
+    fetch(`${API_BASE}/servers/${id}/pod`, {
       headers: await getAuthHeaders(),
     });
 
@@ -331,9 +331,9 @@ export async function getPodStatus(name: string): Promise<PodStatus> {
   return response.json();
 }
 
-export async function executeCommand(name: string, command: string): Promise<string> {
+export async function executeCommand(id: string, command: string): Promise<string> {
   const makeRequest = async () =>
-    fetch(`${API_BASE}/servers/${name}/console`, {
+    fetch(`${API_BASE}/servers/${id}/console`, {
       method: 'POST',
       headers: await getAuthHeaders(),
       body: JSON.stringify({ command }),
@@ -349,9 +349,9 @@ export async function executeCommand(name: string, command: string): Promise<str
   return data.result;
 }
 
-export async function stopServer(name: string): Promise<void> {
+export async function stopServer(id: string): Promise<void> {
   const makeRequest = async () =>
-    fetch(`${API_BASE}/servers/${name}/stop`, {
+    fetch(`${API_BASE}/servers/${id}/stop`, {
       method: 'POST',
       headers: await getAuthHeaders(),
     });
@@ -363,9 +363,9 @@ export async function stopServer(name: string): Promise<void> {
   }
 }
 
-export async function startServer(name: string): Promise<void> {
+export async function startServer(id: string): Promise<void> {
   const makeRequest = async () =>
-    fetch(`${API_BASE}/servers/${name}/start`, {
+    fetch(`${API_BASE}/servers/${id}/start`, {
       method: 'POST',
       headers: await getAuthHeaders(),
     });
@@ -463,9 +463,9 @@ export interface PlayersListResponse {
 }
 
 // Get list of online players (basic info only)
-export async function getServerPlayers(name: string): Promise<PlayersListResponse> {
+export async function getServerPlayers(id: string): Promise<PlayersListResponse> {
   const makeRequest = async () =>
-    fetch(`${API_BASE}/servers/${name}/players`, {
+    fetch(`${API_BASE}/servers/${id}/players`, {
       headers: await getAuthHeaders(),
     });
 
@@ -477,12 +477,9 @@ export async function getServerPlayers(name: string): Promise<PlayersListRespons
 }
 
 // Get detailed data for a specific player
-export async function getPlayerDetails(
-  serverName: string,
-  playerName: string
-): Promise<PlayerData> {
+export async function getPlayerDetails(serverId: string, playerName: string): Promise<PlayerData> {
   const makeRequest = async () =>
-    fetch(`${API_BASE}/servers/${serverName}/players/${encodeURIComponent(playerName)}`, {
+    fetch(`${API_BASE}/servers/${serverId}/players/${encodeURIComponent(playerName)}`, {
       headers: await getAuthHeaders(),
     });
 
@@ -493,9 +490,9 @@ export async function getPlayerDetails(
   return response.json();
 }
 
-export async function updateServer(name: string, updates: UpdateServerRequest): Promise<Server> {
+export async function updateServer(id: string, updates: UpdateServerRequest): Promise<Server> {
   const makeRequest = async () =>
-    fetch(`${API_BASE}/servers/${name}`, {
+    fetch(`${API_BASE}/servers/${id}`, {
       method: 'PATCH',
       headers: await getAuthHeaders(),
       body: JSON.stringify(updates),
@@ -519,9 +516,9 @@ export interface WhitelistResponse {
   players: string[];
 }
 
-export async function getWhitelist(serverName: string): Promise<WhitelistResponse> {
+export async function getWhitelist(serverId: string): Promise<WhitelistResponse> {
   const makeRequest = async () =>
-    fetch(`${API_BASE}/servers/${serverName}/whitelist`, {
+    fetch(`${API_BASE}/servers/${serverId}/whitelist`, {
       headers: await getAuthHeaders(),
     });
 
@@ -532,9 +529,9 @@ export async function getWhitelist(serverName: string): Promise<WhitelistRespons
   return response.json();
 }
 
-export async function addToWhitelist(serverName: string, player: string): Promise<void> {
+export async function addToWhitelist(serverId: string, player: string): Promise<void> {
   const makeRequest = async () =>
-    fetch(`${API_BASE}/servers/${serverName}/whitelist`, {
+    fetch(`${API_BASE}/servers/${serverId}/whitelist`, {
       method: 'POST',
       headers: await getAuthHeaders(),
       body: JSON.stringify({ player }),
@@ -547,9 +544,9 @@ export async function addToWhitelist(serverName: string, player: string): Promis
   }
 }
 
-export async function removeFromWhitelist(serverName: string, player: string): Promise<void> {
+export async function removeFromWhitelist(serverId: string, player: string): Promise<void> {
   const makeRequest = async () =>
-    fetch(`${API_BASE}/servers/${serverName}/whitelist/${encodeURIComponent(player)}`, {
+    fetch(`${API_BASE}/servers/${serverId}/whitelist/${encodeURIComponent(player)}`, {
       method: 'DELETE',
       headers: await getAuthHeaders(),
     });
@@ -561,9 +558,9 @@ export async function removeFromWhitelist(serverName: string, player: string): P
   }
 }
 
-export async function toggleWhitelist(serverName: string, enabled: boolean): Promise<void> {
+export async function toggleWhitelist(serverId: string, enabled: boolean): Promise<void> {
   const makeRequest = async () =>
-    fetch(`${API_BASE}/servers/${serverName}/whitelist/toggle`, {
+    fetch(`${API_BASE}/servers/${serverId}/whitelist/toggle`, {
       method: 'PUT',
       headers: await getAuthHeaders(),
       body: JSON.stringify({ enabled }),
@@ -576,9 +573,9 @@ export async function toggleWhitelist(serverName: string, enabled: boolean): Pro
   }
 }
 
-export async function grantOp(serverName: string, player: string): Promise<void> {
+export async function grantOp(serverId: string, player: string): Promise<void> {
   const makeRequest = async () =>
-    fetch(`${API_BASE}/servers/${serverName}/ops`, {
+    fetch(`${API_BASE}/servers/${serverId}/ops`, {
       method: 'POST',
       headers: await getAuthHeaders(),
       body: JSON.stringify({ player }),
@@ -591,9 +588,9 @@ export async function grantOp(serverName: string, player: string): Promise<void>
   }
 }
 
-export async function revokeOp(serverName: string, player: string): Promise<void> {
+export async function revokeOp(serverId: string, player: string): Promise<void> {
   const makeRequest = async () =>
-    fetch(`${API_BASE}/servers/${serverName}/ops/${encodeURIComponent(player)}`, {
+    fetch(`${API_BASE}/servers/${serverId}/ops/${encodeURIComponent(player)}`, {
       method: 'DELETE',
       headers: await getAuthHeaders(),
     });
@@ -610,9 +607,9 @@ export interface BanListResponse {
   players: string[];
 }
 
-export async function getBanList(serverName: string): Promise<BanListResponse> {
+export async function getBanList(serverId: string): Promise<BanListResponse> {
   const makeRequest = async () =>
-    fetch(`${API_BASE}/servers/${serverName}/bans`, {
+    fetch(`${API_BASE}/servers/${serverId}/bans`, {
       headers: await getAuthHeaders(),
     });
 
@@ -623,13 +620,9 @@ export async function getBanList(serverName: string): Promise<BanListResponse> {
   return response.json();
 }
 
-export async function banPlayer(
-  serverName: string,
-  player: string,
-  reason?: string
-): Promise<void> {
+export async function banPlayer(serverId: string, player: string, reason?: string): Promise<void> {
   const makeRequest = async () =>
-    fetch(`${API_BASE}/servers/${serverName}/bans`, {
+    fetch(`${API_BASE}/servers/${serverId}/bans`, {
       method: 'POST',
       headers: await getAuthHeaders(),
       body: JSON.stringify({ player, reason }),
@@ -642,9 +635,9 @@ export async function banPlayer(
   }
 }
 
-export async function unbanPlayer(serverName: string, player: string): Promise<void> {
+export async function unbanPlayer(serverId: string, player: string): Promise<void> {
   const makeRequest = async () =>
-    fetch(`${API_BASE}/servers/${serverName}/bans/${encodeURIComponent(player)}`, {
+    fetch(`${API_BASE}/servers/${serverId}/bans/${encodeURIComponent(player)}`, {
       method: 'DELETE',
       headers: await getAuthHeaders(),
     });
@@ -656,13 +649,9 @@ export async function unbanPlayer(serverName: string, player: string): Promise<v
   }
 }
 
-export async function kickPlayer(
-  serverName: string,
-  player: string,
-  reason?: string
-): Promise<void> {
+export async function kickPlayer(serverId: string, player: string, reason?: string): Promise<void> {
   const makeRequest = async () =>
-    fetch(`${API_BASE}/servers/${serverName}/kick`, {
+    fetch(`${API_BASE}/servers/${serverId}/kick`, {
       method: 'POST',
       headers: await getAuthHeaders(),
       body: JSON.stringify({ player, reason }),
@@ -680,9 +669,9 @@ export interface IpBanListResponse {
   ips: string[];
 }
 
-export async function getIpBanList(serverName: string): Promise<IpBanListResponse> {
+export async function getIpBanList(serverId: string): Promise<IpBanListResponse> {
   const makeRequest = async () =>
-    fetch(`${API_BASE}/servers/${serverName}/bans/ips`, {
+    fetch(`${API_BASE}/servers/${serverId}/bans/ips`, {
       headers: await getAuthHeaders(),
     });
 
@@ -693,9 +682,9 @@ export async function getIpBanList(serverName: string): Promise<IpBanListRespons
   return response.json();
 }
 
-export async function banIp(serverName: string, ip: string, reason?: string): Promise<void> {
+export async function banIp(serverId: string, ip: string, reason?: string): Promise<void> {
   const makeRequest = async () =>
-    fetch(`${API_BASE}/servers/${serverName}/bans/ips`, {
+    fetch(`${API_BASE}/servers/${serverId}/bans/ips`, {
       method: 'POST',
       headers: await getAuthHeaders(),
       body: JSON.stringify({ ip, reason }),
@@ -708,9 +697,9 @@ export async function banIp(serverName: string, ip: string, reason?: string): Pr
   }
 }
 
-export async function unbanIp(serverName: string, ip: string): Promise<void> {
+export async function unbanIp(serverId: string, ip: string): Promise<void> {
   const makeRequest = async () =>
-    fetch(`${API_BASE}/servers/${serverName}/bans/ips/${encodeURIComponent(ip)}`, {
+    fetch(`${API_BASE}/servers/${serverId}/bans/ips/${encodeURIComponent(ip)}`, {
       method: 'DELETE',
       headers: await getAuthHeaders(),
     });
@@ -727,165 +716,156 @@ export async function unbanIp(serverName: string, ip: string): Promise<void> {
 export interface CommandResult {
   command: string;
   result: string;
-  serverName: string;
+  serverId: string;
 }
 
-export async function setDifficulty(
-  serverName: string,
-  difficulty: string
-): Promise<CommandResult> {
-  return executeCommand(serverName, `difficulty ${difficulty}`).then((result) => ({
+export async function setDifficulty(serverId: string, difficulty: string): Promise<CommandResult> {
+  return executeCommand(serverId, `difficulty ${difficulty}`).then((result) => ({
     command: `difficulty ${difficulty}`,
     result,
-    serverName,
+    serverId,
   }));
 }
 
 export async function setDefaultGamemode(
-  serverName: string,
+  serverId: string,
   gamemode: string
 ): Promise<CommandResult> {
-  return executeCommand(serverName, `defaultgamemode ${gamemode}`).then((result) => ({
+  return executeCommand(serverId, `defaultgamemode ${gamemode}`).then((result) => ({
     command: `defaultgamemode ${gamemode}`,
     result,
-    serverName,
+    serverId,
   }));
 }
 
 export async function setWeather(
-  serverName: string,
+  serverId: string,
   weather: string,
   duration?: number
 ): Promise<CommandResult> {
   const cmd = duration ? `weather ${weather} ${duration}` : `weather ${weather}`;
-  return executeCommand(serverName, cmd).then((result) => ({
+  return executeCommand(serverId, cmd).then((result) => ({
     command: cmd,
     result,
-    serverName,
+    serverId,
   }));
 }
 
-export async function setTime(serverName: string, time: string): Promise<CommandResult> {
-  return executeCommand(serverName, `time set ${time}`).then((result) => ({
+export async function setTime(serverId: string, time: string): Promise<CommandResult> {
+  return executeCommand(serverId, `time set ${time}`).then((result) => ({
     command: `time set ${time}`,
     result,
-    serverName,
+    serverId,
   }));
 }
 
 export async function setGamerule(
-  serverName: string,
+  serverId: string,
   rule: string,
   value: string | boolean
 ): Promise<CommandResult> {
   const val = typeof value === 'boolean' ? value.toString() : value;
-  return executeCommand(serverName, `gamerule ${rule} ${val}`).then((result) => ({
+  return executeCommand(serverId, `gamerule ${rule} ${val}`).then((result) => ({
     command: `gamerule ${rule} ${val}`,
     result,
-    serverName,
+    serverId,
   }));
 }
 
-export async function getGamerule(serverName: string, rule: string): Promise<string> {
-  const result = await executeCommand(serverName, `gamerule ${rule}`);
+export async function getGamerule(serverId: string, rule: string): Promise<string> {
+  const result = await executeCommand(serverId, `gamerule ${rule}`);
   // Parse "Gamerule ruleName is currently set to: value"
   const match = result.match(/is currently set to:\s*(\S+)/i) || result.match(/=\s*(\S+)/);
   return match ? match[1] : result;
 }
 
 export async function setWorldBorder(
-  serverName: string,
+  serverId: string,
   size: number,
   time?: number
 ): Promise<CommandResult> {
   const cmd = time ? `worldborder set ${size} ${time}` : `worldborder set ${size}`;
-  return executeCommand(serverName, cmd).then((result) => ({
+  return executeCommand(serverId, cmd).then((result) => ({
     command: cmd,
     result,
-    serverName,
+    serverId,
   }));
 }
 
-export async function sayMessage(serverName: string, message: string): Promise<CommandResult> {
-  return executeCommand(serverName, `say ${message}`).then((result) => ({
+export async function sayMessage(serverId: string, message: string): Promise<CommandResult> {
+  return executeCommand(serverId, `say ${message}`).then((result) => ({
     command: `say ${message}`,
     result,
-    serverName,
+    serverId,
   }));
 }
 
 // Player-specific commands
 export async function setPlayerGamemode(
-  serverName: string,
+  serverId: string,
   player: string,
   gamemode: string
 ): Promise<CommandResult> {
-  return executeCommand(serverName, `gamemode ${gamemode} ${player}`).then((result) => ({
+  return executeCommand(serverId, `gamemode ${gamemode} ${player}`).then((result) => ({
     command: `gamemode ${gamemode} ${player}`,
     result,
-    serverName,
+    serverId,
   }));
 }
 
 export async function teleportPlayer(
-  serverName: string,
+  serverId: string,
   player: string,
   x: number,
   y: number,
   z: number
 ): Promise<CommandResult> {
-  return executeCommand(serverName, `tp ${player} ${x} ${y} ${z}`).then((result) => ({
+  return executeCommand(serverId, `tp ${player} ${x} ${y} ${z}`).then((result) => ({
     command: `tp ${player} ${x} ${y} ${z}`,
     result,
-    serverName,
+    serverId,
   }));
 }
 
 export async function givePlayerEffect(
-  serverName: string,
+  serverId: string,
   player: string,
   effect: string,
   duration: number = 30,
   amplifier: number = 0
 ): Promise<CommandResult> {
-  return executeCommand(
-    serverName,
-    `effect give ${player} ${effect} ${duration} ${amplifier}`
-  ).then((result) => ({
-    command: `effect give ${player} ${effect} ${duration} ${amplifier}`,
-    result,
-    serverName,
-  }));
-}
-
-export async function clearPlayerEffects(
-  serverName: string,
-  player: string
-): Promise<CommandResult> {
-  return executeCommand(serverName, `effect clear ${player}`).then((result) => ({
-    command: `effect clear ${player}`,
-    result,
-    serverName,
-  }));
-}
-
-export async function healPlayer(serverName: string, player: string): Promise<CommandResult> {
-  // Give instant health effect at high level to fully heal
-  return executeCommand(serverName, `effect give ${player} instant_health 1 100`).then(
+  return executeCommand(serverId, `effect give ${player} ${effect} ${duration} ${amplifier}`).then(
     (result) => ({
-      command: `effect give ${player} instant_health 1 100`,
+      command: `effect give ${player} ${effect} ${duration} ${amplifier}`,
       result,
-      serverName,
+      serverId,
     })
   );
 }
 
-export async function feedPlayer(serverName: string, player: string): Promise<CommandResult> {
+export async function clearPlayerEffects(serverId: string, player: string): Promise<CommandResult> {
+  return executeCommand(serverId, `effect clear ${player}`).then((result) => ({
+    command: `effect clear ${player}`,
+    result,
+    serverId,
+  }));
+}
+
+export async function healPlayer(serverId: string, player: string): Promise<CommandResult> {
+  // Give instant health effect at high level to fully heal
+  return executeCommand(serverId, `effect give ${player} instant_health 1 100`).then((result) => ({
+    command: `effect give ${player} instant_health 1 100`,
+    result,
+    serverId,
+  }));
+}
+
+export async function feedPlayer(serverId: string, player: string): Promise<CommandResult> {
   // Give saturation effect to fully feed
-  return executeCommand(serverName, `effect give ${player} saturation 1 100`).then((result) => ({
+  return executeCommand(serverId, `effect give ${player} saturation 1 100`).then((result) => ({
     command: `effect give ${player} saturation 1 100`,
     result,
-    serverName,
+    serverId,
   }));
 }
 
@@ -925,9 +905,9 @@ export interface CreateBackupRequest {
   tags?: string[];
 }
 
-export async function listBackups(serverName: string): Promise<BackupListResponse> {
+export async function listBackups(serverId: string): Promise<BackupListResponse> {
   const makeRequest = async () =>
-    fetch(`${API_BASE}/servers/${serverName}/backups`, {
+    fetch(`${API_BASE}/servers/${serverId}/backups`, {
       headers: await getAuthHeaders(),
     });
 
@@ -939,11 +919,11 @@ export async function listBackups(serverName: string): Promise<BackupListRespons
 }
 
 export async function createBackup(
-  serverName: string,
+  serverId: string,
   options?: CreateBackupRequest
 ): Promise<{ message: string; backup: Backup }> {
   const makeRequest = async () =>
-    fetch(`${API_BASE}/servers/${serverName}/backups`, {
+    fetch(`${API_BASE}/servers/${serverId}/backups`, {
       method: 'POST',
       headers: await getAuthHeaders(),
       body: JSON.stringify(options || {}),
@@ -1025,9 +1005,9 @@ export interface BackupSchedule {
   nextBackupAt?: string;
 }
 
-export async function getBackupSchedule(serverName: string): Promise<BackupSchedule> {
+export async function getBackupSchedule(serverId: string): Promise<BackupSchedule> {
   const makeRequest = async () =>
-    fetch(`${API_BASE}/servers/${serverName}/backups/schedule`, {
+    fetch(`${API_BASE}/servers/${serverId}/backups/schedule`, {
       headers: await getAuthHeaders(),
     });
 
@@ -1039,11 +1019,11 @@ export async function getBackupSchedule(serverName: string): Promise<BackupSched
 }
 
 export async function setBackupSchedule(
-  serverName: string,
+  serverId: string,
   config: { enabled: boolean; intervalHours: number; retentionCount: number }
 ): Promise<{ message: string; schedule: BackupSchedule }> {
   const makeRequest = async () =>
-    fetch(`${API_BASE}/servers/${serverName}/backups/schedule`, {
+    fetch(`${API_BASE}/servers/${serverId}/backups/schedule`, {
       method: 'PUT',
       headers: await getAuthHeaders(),
       body: JSON.stringify(config),

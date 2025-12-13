@@ -8,8 +8,14 @@ import (
 
 // MinecraftServerSpec defines the desired state of MinecraftServer
 type MinecraftServerSpec struct {
-	// ServerID is the unique identifier for this server instance
+	// ServerID is the unique UUID identifier for this server instance
+	// This is the primary identifier used throughout the system
 	ServerID string `json:"serverId"`
+
+	// DisplayName is the user-friendly name shown in the UI
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=64
+	DisplayName string `json:"displayName"`
 
 	// TenantID is the tenant that owns this server
 	TenantID string `json:"tenantId"`
@@ -323,6 +329,7 @@ type NetworkIOStats struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Namespaced,shortName=mcserver;mcs
+// +kubebuilder:printcolumn:name="Display Name",type="string",JSONPath=".spec.displayName",priority=0
 // +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.phase"
 // +kubebuilder:printcolumn:name="Players",type="string",JSONPath=".status.playerCount"
 // +kubebuilder:printcolumn:name="Max Players",type="string",JSONPath=".status.maxPlayers"
@@ -434,6 +441,11 @@ func (m *MinecraftServer) GetTenantID() string {
 // GetServerID returns the server ID for this server
 func (m *MinecraftServer) GetServerID() string {
 	return m.Spec.ServerID
+}
+
+// GetDisplayName returns the display name for this server
+func (m *MinecraftServer) GetDisplayName() string {
+	return m.Spec.DisplayName
 }
 
 // IsRunning returns true if the server is in running state

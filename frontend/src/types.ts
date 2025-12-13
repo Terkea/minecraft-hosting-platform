@@ -81,7 +81,9 @@ export interface ServerConfig {
 }
 
 export interface Server {
-  name: string;
+  id: string; // UUID - primary identifier used for API calls
+  name: string; // K8s resource name (mc-{uuid-prefix})
+  displayName: string; // User-friendly name shown in UI
   namespace: string;
   status: string;
   phase: string;
@@ -199,7 +201,7 @@ export interface ApiResponse<T> {
 }
 
 export interface MetricsUpdate {
-  [serverName: string]: ServerMetrics;
+  [serverId: string]: ServerMetrics;
 }
 
 export interface WebSocketMessage {

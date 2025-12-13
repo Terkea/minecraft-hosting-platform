@@ -43,6 +43,7 @@ interface BackupRow {
   tags: string[];
   created_at: Date;
   updated_at: Date;
+  deleted_at: Date | null;
 }
 
 interface ScheduleRow {
@@ -55,6 +56,7 @@ interface ScheduleRow {
   next_backup_at: Date | null;
   created_at: Date;
   updated_at: Date;
+  deleted_at: Date | null;
 }
 
 /**
@@ -175,21 +177,22 @@ export class BackupStoreDB {
   }
 
   /**
-   * Get backup by ID
+   * Get backup by ID (excludes soft-deleted records)
    */
   async getBackupById(id: string): Promise<BackupSnapshot | undefined> {
-    const result = await this.getPool().query<BackupRow>('SELECT * FROM backups WHERE id = $1', [
-      id,
-    ]);
+    const result = await this.getPool().query<BackupRow>(
+      'SELECT * FROM backups WHERE id = $1 AND deleted_at IS NULL',
+      [id]
+    );
     return result.rows[0] ? this.mapRowToBackup(result.rows[0]) : undefined;
   }
 
   /**
-   * Get backup by ID with tenant verification (prevents IDOR)
+   * Get backup by ID with tenant verification (prevents IDOR, excludes soft-deleted)
    */
   async getBackupByIdForTenant(id: string, tenantId: string): Promise<BackupSnapshot | undefined> {
     const result = await this.getPool().query<BackupRow>(
-      'SELECT * FROM backups WHERE id = $1 AND tenant_id = $2',
+      'SELECT * FROM backups WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL',
       [id, tenantId]
     );
     return result.rows[0] ? this.mapRowToBackup(result.rows[0]) : undefined;
@@ -269,11 +272,11 @@ export class BackupStoreDB {
   }
 
   /**
-   * List backups with optional filters
+   * List backups with optional filters (excludes soft-deleted records)
    */
   async listBackups(serverId?: string, tenantId?: string): Promise<BackupSnapshot[]> {
     let query = 'SELECT * FROM backups';
-    const conditions: string[] = [];
+    const conditions: string[] = ['deleted_at IS NULL'];
     const values: unknown[] = [];
     let paramIndex = 1;
 
@@ -286,9 +289,7 @@ export class BackupStoreDB {
       values.push(tenantId);
     }
 
-    if (conditions.length > 0) {
-      query += ' WHERE ' + conditions.join(' AND ');
-    }
+    query += ' WHERE ' + conditions.join(' AND ');
     query += ' ORDER BY started_at DESC';
 
     const result = await this.getPool().query<BackupRow>(query, values);
@@ -296,12 +297,12 @@ export class BackupStoreDB {
   }
 
   /**
-   * Get automatic backups for retention policy
+   * Get automatic backups for retention policy (excludes soft-deleted)
    */
   async getAutomaticBackups(serverId: string): Promise<BackupSnapshot[]> {
     const result = await this.getPool().query<BackupRow>(
       `SELECT * FROM backups
-       WHERE server_id = $1 AND is_automatic = TRUE AND status = 'completed'
+       WHERE server_id = $1 AND is_automatic = TRUE AND status = 'completed' AND deleted_at IS NULL
        ORDER BY started_at DESC`,
       [serverId]
     );
@@ -311,11 +312,11 @@ export class BackupStoreDB {
   // ============== Schedule Operations ==============
 
   /**
-   * Get schedule by server ID
+   * Get schedule by server ID (excludes soft-deleted)
    */
   async getSchedule(serverId: string): Promise<BackupSchedule | undefined> {
     const result = await this.getPool().query<ScheduleRow>(
-      'SELECT * FROM backup_schedules WHERE server_id = $1',
+      'SELECT * FROM backup_schedules WHERE server_id = $1 AND deleted_at IS NULL',
       [serverId]
     );
     return result.rows[0] ? this.mapRowToSchedule(result.rows[0]) : undefined;
@@ -383,12 +384,12 @@ export class BackupStoreDB {
   }
 
   /**
-   * Get all enabled schedules that need to run
+   * Get all enabled schedules that need to run (excludes soft-deleted)
    */
   async getDueSchedules(): Promise<BackupSchedule[]> {
     const now = new Date();
     const result = await this.getPool().query<ScheduleRow>(
-      `SELECT * FROM backup_schedules WHERE enabled = TRUE AND next_backup_at <= $1`,
+      `SELECT * FROM backup_schedules WHERE enabled = TRUE AND next_backup_at <= $1 AND deleted_at IS NULL`,
       [now]
     );
     return result.rows.map((row) => this.mapRowToSchedule(row));
@@ -403,6 +404,40 @@ export class BackupStoreDB {
       [serverId]
     );
     return (result.rowCount ?? 0) > 0;
+  }
+
+  // ============== Server Cleanup Operations ==============
+
+  /**
+   * Soft-delete all backup records and schedules for a server.
+   * Used when a server is deleted to preserve audit trail while hiding records.
+   * Returns counts of affected records.
+   */
+  async softDeleteByServerId(serverId: string): Promise<{ backups: number; schedules: number }> {
+    const now = new Date();
+
+    // Soft-delete all backups for this server
+    const backupsResult = await this.getPool().query(
+      'UPDATE backups SET deleted_at = $1, updated_at = $1 WHERE server_id = $2 AND deleted_at IS NULL',
+      [now, serverId]
+    );
+
+    // Soft-delete the schedule for this server
+    const schedulesResult = await this.getPool().query(
+      'UPDATE backup_schedules SET deleted_at = $1, updated_at = $1 WHERE server_id = $2 AND deleted_at IS NULL',
+      [now, serverId]
+    );
+
+    const counts = {
+      backups: backupsResult.rowCount ?? 0,
+      schedules: schedulesResult.rowCount ?? 0,
+    };
+
+    console.log(
+      `[BackupStore] Soft-deleted records for server ${serverId}: ${counts.backups} backups, ${counts.schedules} schedules`
+    );
+
+    return counts;
   }
 }
 

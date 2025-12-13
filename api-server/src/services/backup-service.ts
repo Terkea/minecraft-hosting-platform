@@ -1468,4 +1468,14 @@ export class BackupService {
       await this.deleteBackup(backup.id);
     }
   }
+
+  /**
+   * Soft-delete all backup records and schedules for a server.
+   * Called when a server is deleted. Records are preserved with deleted_at timestamp.
+   * Google Drive files are kept for user reference.
+   */
+  async softDeleteServerData(serverId: string): Promise<{ backups: number; schedules: number }> {
+    console.log(`[BackupService] Soft-deleting data for server ${serverId}`);
+    return backupStore.softDeleteByServerId(serverId);
+  }
 }

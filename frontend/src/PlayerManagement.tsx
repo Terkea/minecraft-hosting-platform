@@ -34,13 +34,13 @@ import {
 } from './api';
 
 interface PlayerManagementProps {
-  serverName: string;
+  serverId: string;
   isRunning: boolean;
 }
 
 type ManagementTab = 'whitelist' | 'ops' | 'bans' | 'ip-bans';
 
-export function PlayerManagement({ serverName, isRunning }: PlayerManagementProps) {
+export function PlayerManagement({ serverId, isRunning }: PlayerManagementProps) {
   const [activeTab, setActiveTab] = useState<ManagementTab>('whitelist');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -75,7 +75,7 @@ export function PlayerManagement({ serverName, isRunning }: PlayerManagementProp
       void loadData();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [serverName, activeTab, isRunning]);
+  }, [serverId, activeTab, isRunning]);
 
   const loadData = async () => {
     if (!isRunning) return;
@@ -86,17 +86,17 @@ export function PlayerManagement({ serverName, isRunning }: PlayerManagementProp
     try {
       switch (activeTab) {
         case 'whitelist': {
-          const wl = await getWhitelist(serverName);
+          const wl = await getWhitelist(serverId);
           setWhitelist(wl);
           break;
         }
         case 'bans': {
-          const bl = await getBanList(serverName);
+          const bl = await getBanList(serverId);
           setBanList(bl);
           break;
         }
         case 'ip-bans': {
-          const ipbl = await getIpBanList(serverName);
+          const ipbl = await getIpBanList(serverId);
           setIpBanList(ipbl);
           break;
         }
@@ -122,7 +122,7 @@ export function PlayerManagement({ serverName, isRunning }: PlayerManagementProp
     setLoading(true);
     setError(null);
     try {
-      await addToWhitelist(serverName, whitelistInput.trim());
+      await addToWhitelist(serverId, whitelistInput.trim());
       showSuccessMessage(`Added ${whitelistInput.trim()} to whitelist`);
       setWhitelistInput('');
       await loadData();
@@ -137,7 +137,7 @@ export function PlayerManagement({ serverName, isRunning }: PlayerManagementProp
     setLoading(true);
     setError(null);
     try {
-      await removeFromWhitelist(serverName, player);
+      await removeFromWhitelist(serverId, player);
       showSuccessMessage(`Removed ${player} from whitelist`);
       await loadData();
     } catch (err: any) {
@@ -151,7 +151,7 @@ export function PlayerManagement({ serverName, isRunning }: PlayerManagementProp
     setLoading(true);
     setError(null);
     try {
-      await toggleWhitelist(serverName, !whitelistEnabled);
+      await toggleWhitelist(serverId, !whitelistEnabled);
       setWhitelistEnabled(!whitelistEnabled);
       showSuccessMessage(`Whitelist ${!whitelistEnabled ? 'enabled' : 'disabled'}`);
     } catch (err: any) {
@@ -167,7 +167,7 @@ export function PlayerManagement({ serverName, isRunning }: PlayerManagementProp
     setLoading(true);
     setError(null);
     try {
-      await grantOp(serverName, opInput.trim());
+      await grantOp(serverId, opInput.trim());
       showSuccessMessage(`Granted operator to ${opInput.trim()}`);
       setOpPlayers((prev) => [...prev, opInput.trim()]);
       setOpInput('');
@@ -182,7 +182,7 @@ export function PlayerManagement({ serverName, isRunning }: PlayerManagementProp
     setLoading(true);
     setError(null);
     try {
-      await revokeOp(serverName, player);
+      await revokeOp(serverId, player);
       showSuccessMessage(`Revoked operator from ${player}`);
       setOpPlayers((prev) => prev.filter((p) => p !== player));
     } catch (err: any) {
@@ -198,7 +198,7 @@ export function PlayerManagement({ serverName, isRunning }: PlayerManagementProp
     setLoading(true);
     setError(null);
     try {
-      await banPlayer(serverName, banInput.trim(), banReason || undefined);
+      await banPlayer(serverId, banInput.trim(), banReason || undefined);
       showSuccessMessage(`Banned ${banInput.trim()}`);
       setBanInput('');
       setBanReason('');
@@ -214,7 +214,7 @@ export function PlayerManagement({ serverName, isRunning }: PlayerManagementProp
     setLoading(true);
     setError(null);
     try {
-      await unbanPlayer(serverName, player);
+      await unbanPlayer(serverId, player);
       showSuccessMessage(`Unbanned ${player}`);
       await loadData();
     } catch (err: any) {
@@ -230,7 +230,7 @@ export function PlayerManagement({ serverName, isRunning }: PlayerManagementProp
     setLoading(true);
     setError(null);
     try {
-      await banIp(serverName, ipBanInput.trim(), ipBanReason || undefined);
+      await banIp(serverId, ipBanInput.trim(), ipBanReason || undefined);
       showSuccessMessage(`Banned IP ${ipBanInput.trim()}`);
       setIpBanInput('');
       setIpBanReason('');
@@ -246,7 +246,7 @@ export function PlayerManagement({ serverName, isRunning }: PlayerManagementProp
     setLoading(true);
     setError(null);
     try {
-      await unbanIp(serverName, ip);
+      await unbanIp(serverId, ip);
       showSuccessMessage(`Unbanned IP ${ip}`);
       await loadData();
     } catch (err: any) {
@@ -262,7 +262,7 @@ export function PlayerManagement({ serverName, isRunning }: PlayerManagementProp
     setLoading(true);
     setError(null);
     try {
-      await kickPlayer(serverName, kickInput.trim(), kickReason || undefined);
+      await kickPlayer(serverId, kickInput.trim(), kickReason || undefined);
       showSuccessMessage(`Kicked ${kickInput.trim()}`);
       setKickInput('');
       setKickReason('');

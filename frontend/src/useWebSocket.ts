@@ -40,7 +40,7 @@ export function useWebSocket() {
           case 'created':
             if (message.server) {
               setServers((prev) => {
-                const exists = prev.some((s) => s.name === message.server!.name);
+                const exists = prev.some((s) => s.id === message.server!.id);
                 return exists ? prev : [...prev, message.server!];
               });
             }
@@ -48,7 +48,7 @@ export function useWebSocket() {
 
           case 'deleted':
             if (message.server) {
-              setServers((prev) => prev.filter((s) => s.name !== message.server!.name));
+              setServers((prev) => prev.filter((s) => s.id !== message.server!.id));
             }
             break;
 
@@ -56,7 +56,7 @@ export function useWebSocket() {
             if (message.metrics) {
               setServers((prev) =>
                 prev.map((server) => {
-                  const serverMetrics = message.metrics![server.name];
+                  const serverMetrics = message.metrics![server.id];
                   if (serverMetrics) {
                     return { ...server, metrics: serverMetrics };
                   }
@@ -76,12 +76,12 @@ export function useWebSocket() {
           case 'auto_start_configured':
             if (message.server) {
               setServers((prev) => {
-                const exists = prev.some((s) => s.name === message.server!.name);
+                const exists = prev.some((s) => s.id === message.server!.id);
                 if (!exists && message.type === 'added') {
                   return [...prev, message.server!];
                 }
                 return prev.map((s) =>
-                  s.name === message.server!.name ? { ...s, ...message.server! } : s
+                  s.id === message.server!.id ? { ...s, ...message.server! } : s
                 );
               });
             }

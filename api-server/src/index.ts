@@ -68,20 +68,20 @@ const metricsService = new MetricsService(K8S_NAMESPACE);
 const eventBus = getEventBus();
 
 /**
- * Helper to verify server ownership.
+ * Helper to verify server ownership by UUID.
  * Returns the server if owned by user, or sends 404/403 response and returns null.
  */
 async function verifyServerOwnership(
   req: AuthenticatedRequest,
   res: Response,
-  serverName: string
+  serverId: string
 ): Promise<any | null> {
-  const server = await k8sClient.getMinecraftServer(serverName);
+  const server = await k8sClient.getMinecraftServerById(serverId);
 
   if (!server) {
     res.status(404).json({
       error: 'not_found',
-      message: `Server '${serverName}' not found`,
+      message: `Server not found`,
     });
     return null;
   }
@@ -550,11 +550,11 @@ app.post(
   }
 );
 
-// Get a specific server
-app.get('/api/v1/servers/:name', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+// Get a specific server by UUID
+app.get('/api/v1/servers/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { name } = req.params;
-    const server = await verifyServerOwnership(req, res, name);
+    const { id } = req.params;
+    const server = await verifyServerOwnership(req, res, id);
     if (!server) return;
 
     // Sanitize to remove sensitive fields like rconPassword
@@ -568,50 +568,73 @@ app.get('/api/v1/servers/:name', requireAuth, async (req: AuthenticatedRequest, 
   }
 });
 
-// Delete a server
-app.delete(
-  '/api/v1/servers/:name',
-  requireAuth,
-  async (req: AuthenticatedRequest, res: Response) => {
+// Delete a server by UUID
+app.delete('/api/v1/servers/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await verifyServerOwnership(req, res, id);
+    if (!server) return;
+
+    console.log(`[API] Deleting server ${id} (${server.displayName})`);
+
+    // 1. Delete the MinecraftServer CRD (this triggers operator cleanup of StatefulSet, Services, etc.)
+    await k8sClient.deleteMinecraftServer(server.name);
+
+    // 2. Delete the PVC (world data) - this is not auto-cleaned by owner references
     try {
-      const { name } = req.params;
-      const server = await verifyServerOwnership(req, res, name);
-      if (!server) return;
-
-      await k8sClient.deleteMinecraftServer(name);
-
-      // Broadcast to WebSocket clients
-      broadcastServerUpdate('deleted', { name, namespace: K8S_NAMESPACE, phase: 'Deleted' });
-
-      res.json({
-        message: `Server '${name}' deletion initiated`,
-      });
-    } catch (error: any) {
-      console.error('Failed to delete server:', error);
-      res.status(500).json({
-        error: 'delete_failed',
-        message: error.message,
-      });
+      await k8sClient.deleteServerPVC(server.name);
+    } catch (pvcError: any) {
+      console.warn(`[API] Failed to delete PVC for ${server.name}:`, pvcError.message);
+      // Continue anyway - PVC might not exist or deletion can be retried
     }
+
+    // 3. Soft-delete backup records and schedules (preserves audit trail, Google Drive files kept)
+    try {
+      const deletedCounts = await backupService.softDeleteServerData(id);
+      console.log(
+        `[API] Soft-deleted ${deletedCounts.backups} backups, ${deletedCounts.schedules} schedules for server ${id}`
+      );
+    } catch (dbError: any) {
+      console.warn(`[API] Failed to soft-delete backup data for ${id}:`, dbError.message);
+      // Continue anyway - CRD deletion is the critical part
+    }
+
+    // Broadcast to WebSocket clients
+    broadcastServerUpdate('deleted', {
+      id,
+      name: server.name,
+      namespace: K8S_NAMESPACE,
+      phase: 'Deleted',
+    });
+
+    res.json({
+      message: `Server '${server.displayName}' and all associated data deleted`,
+    });
+  } catch (error: any) {
+    console.error('Failed to delete server:', error);
+    res.status(500).json({
+      error: 'delete_failed',
+      message: error.message,
+    });
   }
-);
+});
 
 // Get server logs (live/latest)
 app.get(
-  '/api/v1/servers/:name/logs',
+  '/api/v1/servers/:id/logs',
   requireAuth,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { name } = req.params;
-      const server = await verifyServerOwnership(req, res, name);
+      const { id } = req.params;
+      const server = await verifyServerOwnership(req, res, id);
       if (!server) return;
 
       const lines = parseInt(req.query.lines as string) || 100;
-      const logs = await k8sClient.getServerLogs(name, lines);
+      const logs = await k8sClient.getServerLogs(server.name, lines);
 
       res.json({
         logs: logs.split('\n'),
-        serverName: name,
+        serverId: id,
       });
     } catch (error: any) {
       console.error('Failed to get server logs:', error);
@@ -625,16 +648,16 @@ app.get(
 
 // List log files from the server's logs directory
 app.get(
-  '/api/v1/servers/:name/logs/files',
+  '/api/v1/servers/:id/logs/files',
   requireAuth,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { name } = req.params;
-      const server = await verifyServerOwnership(req, res, name);
+      const { id } = req.params;
+      const server = await verifyServerOwnership(req, res, id);
       if (!server) return;
 
       // Execute ls command in the pod to list log files
-      const result = await k8sClient.execInPod(name, [
+      const result = await k8sClient.execInPod(server.name, [
         'sh',
         '-c',
         'ls -la /data/logs/ 2>/dev/null || echo "No logs directory"',
@@ -697,7 +720,7 @@ app.get(
       });
 
       res.json({
-        serverName: name,
+        serverId: id,
         files,
         count: files.length,
       });
@@ -713,12 +736,12 @@ app.get(
 
 // Get content of a specific log file
 app.get(
-  '/api/v1/servers/:name/logs/files/:filename',
+  '/api/v1/servers/:id/logs/files/:filename',
   requireAuth,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { name, filename } = req.params;
-      const server = await verifyServerOwnership(req, res, name);
+      const { id, filename } = req.params;
+      const server = await verifyServerOwnership(req, res, id);
       if (!server) return;
 
       const lines = parseInt(req.query.lines as string) || 500;
@@ -743,10 +766,10 @@ app.get(
         command = `tail -n ${lines} /data/logs/${sanitizedFilename} 2>/dev/null`;
       }
 
-      const result = await k8sClient.execInPod(name, ['sh', '-c', command]);
+      const result = await k8sClient.execInPod(server.name, ['sh', '-c', command]);
 
       res.json({
-        serverName: name,
+        serverId: id,
         filename: sanitizedFilename,
         content: result.split('\n'),
         lines: result.split('\n').length,
@@ -802,12 +825,12 @@ interface UpdateServerBody {
 }
 
 app.patch(
-  '/api/v1/servers/:name',
+  '/api/v1/servers/:id',
   requireAuth,
   async (req: AuthenticatedRequest & { body: UpdateServerBody }, res: Response) => {
     try {
-      const { name } = req.params;
-      const server = await verifyServerOwnership(req, res, name);
+      const { id } = req.params;
+      const server = await verifyServerOwnership(req, res, id);
       if (!server) return;
 
       const body = req.body;
@@ -932,7 +955,7 @@ app.patch(
         updates.config = configUpdates as MinecraftServerSpec['config'];
       }
 
-      const updatedServer = await k8sClient.updateMinecraftServer(name, updates);
+      const updatedServer = await k8sClient.updateMinecraftServer(server.name, updates);
 
       broadcastServerUpdate('updated', updatedServer);
 
@@ -966,27 +989,27 @@ interface ScaleServerBody {
 }
 
 app.post(
-  '/api/v1/servers/:name/scale',
+  '/api/v1/servers/:id/scale',
   requireAuth,
   async (req: AuthenticatedRequest & { body: ScaleServerBody }, res: Response) => {
     try {
-      const { name } = req.params;
-      const serverCheck = await verifyServerOwnership(req, res, name);
+      const { id } = req.params;
+      const serverCheck = await verifyServerOwnership(req, res, id);
       if (!serverCheck) return;
 
       const { cpuLimit, memoryLimit, memory } = req.body;
 
-      const server = await k8sClient.scaleMinecraftServer(name, {
+      const scaledServer = await k8sClient.scaleMinecraftServer(serverCheck.name, {
         cpuLimit,
         memoryLimit,
         memory,
       });
 
-      broadcastServerUpdate('scaled', server);
+      broadcastServerUpdate('scaled', scaledServer);
 
       res.json({
         message: 'Server scaling initiated',
-        server,
+        server: scaledServer,
       });
     } catch (error: any) {
       console.error('Failed to scale server:', error);
@@ -1005,12 +1028,12 @@ interface AutoStopBody {
 }
 
 app.put(
-  '/api/v1/servers/:name/auto-stop',
+  '/api/v1/servers/:id/auto-stop',
   requireAuth,
   async (req: AuthenticatedRequest & { body: AutoStopBody }, res: Response) => {
     try {
-      const { name } = req.params;
-      const serverCheck = await verifyServerOwnership(req, res, name);
+      const { id } = req.params;
+      const serverCheck = await verifyServerOwnership(req, res, id);
       if (!serverCheck) return;
 
       const { enabled, idleTimeoutMinutes } = req.body;
@@ -1022,16 +1045,16 @@ app.put(
         });
       }
 
-      const server = await k8sClient.configureAutoStop(name, {
+      const updatedServer = await k8sClient.configureAutoStop(serverCheck.name, {
         enabled,
         idleTimeoutMinutes,
       });
 
-      broadcastServerUpdate('auto_stop_configured', server);
+      broadcastServerUpdate('auto_stop_configured', updatedServer);
 
       res.json({
-        message: `Auto-stop ${enabled ? 'enabled' : 'disabled'} for server '${name}'`,
-        server,
+        message: `Auto-stop ${enabled ? 'enabled' : 'disabled'} for server '${serverCheck.displayName}'`,
+        server: updatedServer,
       });
     } catch (error: any) {
       console.error('Failed to configure auto-stop:', error);
@@ -1049,12 +1072,12 @@ interface AutoStartBody {
 }
 
 app.put(
-  '/api/v1/servers/:name/auto-start',
+  '/api/v1/servers/:id/auto-start',
   requireAuth,
   async (req: AuthenticatedRequest & { body: AutoStartBody }, res: Response) => {
     try {
-      const { name } = req.params;
-      const serverCheck = await verifyServerOwnership(req, res, name);
+      const { id } = req.params;
+      const serverCheck = await verifyServerOwnership(req, res, id);
       if (!serverCheck) return;
 
       const { enabled } = req.body;
@@ -1066,15 +1089,15 @@ app.put(
         });
       }
 
-      const server = await k8sClient.configureAutoStart(name, {
+      const updatedServer = await k8sClient.configureAutoStart(serverCheck.name, {
         enabled,
       });
 
-      broadcastServerUpdate('auto_start_configured', server);
+      broadcastServerUpdate('auto_start_configured', updatedServer);
 
       res.json({
-        message: `Auto-start ${enabled ? 'enabled' : 'disabled'} for server '${name}'`,
-        server,
+        message: `Auto-start ${enabled ? 'enabled' : 'disabled'} for server '${serverCheck.displayName}'`,
+        server: updatedServer,
       });
     } catch (error: any) {
       console.error('Failed to configure auto-start:', error);
@@ -1088,21 +1111,26 @@ app.put(
 
 // Stop a server (scale StatefulSet to 0)
 app.post(
-  '/api/v1/servers/:name/stop',
+  '/api/v1/servers/:id/stop',
   requireAuth,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { name } = req.params;
-      const server = await verifyServerOwnership(req, res, name);
+      const { id } = req.params;
+      const server = await verifyServerOwnership(req, res, id);
       if (!server) return;
 
-      await k8sClient.stopServer(name);
+      await k8sClient.stopServer(server.name);
 
-      broadcastServerUpdate('stopped', { name, namespace: K8S_NAMESPACE, phase: 'Stopped' });
+      broadcastServerUpdate('stopped', {
+        id,
+        name: server.name,
+        namespace: K8S_NAMESPACE,
+        phase: 'Stopped',
+      });
 
       res.json({
-        message: `Server '${name}' stop initiated`,
-        server: { name, phase: 'Stopping' },
+        message: `Server '${server.displayName}' stop initiated`,
+        server: { id, name: server.name, phase: 'Stopping' },
       });
     } catch (error: any) {
       console.error('Failed to stop server:', error);
@@ -1116,21 +1144,26 @@ app.post(
 
 // Start a server (scale StatefulSet to 1)
 app.post(
-  '/api/v1/servers/:name/start',
+  '/api/v1/servers/:id/start',
   requireAuth,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { name } = req.params;
-      const server = await verifyServerOwnership(req, res, name);
+      const { id } = req.params;
+      const server = await verifyServerOwnership(req, res, id);
       if (!server) return;
 
-      await k8sClient.startServer(name);
+      await k8sClient.startServer(server.name);
 
-      broadcastServerUpdate('started', { name, namespace: K8S_NAMESPACE, phase: 'Starting' });
+      broadcastServerUpdate('started', {
+        id,
+        name: server.name,
+        namespace: K8S_NAMESPACE,
+        phase: 'Starting',
+      });
 
       res.json({
-        message: `Server '${name}' start initiated`,
-        server: { name, phase: 'Starting' },
+        message: `Server '${server.displayName}' start initiated`,
+        server: { id, name: server.name, phase: 'Starting' },
       });
     } catch (error: any) {
       console.error('Failed to start server:', error);
@@ -1144,20 +1177,20 @@ app.post(
 
 // Get pod status
 app.get(
-  '/api/v1/servers/:name/pod',
+  '/api/v1/servers/:id/pod',
   requireAuth,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { name } = req.params;
-      const server = await verifyServerOwnership(req, res, name);
+      const { id } = req.params;
+      const server = await verifyServerOwnership(req, res, id);
       if (!server) return;
 
-      const podStatus = await k8sClient.getPodStatus(name);
+      const podStatus = await k8sClient.getPodStatus(server.name);
 
       if (!podStatus) {
         return res.status(404).json({
           error: 'not_found',
-          message: `Pod for server '${name}' not found`,
+          message: `Pod for server not found`,
         });
       }
 
@@ -1174,25 +1207,25 @@ app.get(
 
 // Get server metrics
 app.get(
-  '/api/v1/servers/:name/metrics',
+  '/api/v1/servers/:id/metrics',
   requireAuth,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { name } = req.params;
-      const server = await verifyServerOwnership(req, res, name);
+      const { id } = req.params;
+      const server = await verifyServerOwnership(req, res, id);
       if (!server) return;
 
-      const metrics = metricsService.getServerMetrics(name);
+      const metrics = metricsService.getServerMetrics(server.name);
 
       if (!metrics) {
         return res.status(404).json({
           error: 'not_found',
-          message: `Metrics for server '${name}' not found`,
+          message: `Metrics for server not found`,
         });
       }
 
       res.json({
-        serverName: name,
+        serverId: id,
         metrics: {
           cpu: metrics.pod?.cpu
             ? {
@@ -1276,12 +1309,12 @@ app.get('/api/v1/metrics', requireAuth, async (req: AuthenticatedRequest, res: R
 
 // Get online players list (basic info only for performance)
 app.get(
-  '/api/v1/servers/:name/players',
+  '/api/v1/servers/:id/players',
   requireAuth,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { name } = req.params;
-      const server = await verifyServerOwnership(req, res, name);
+      const { id } = req.params;
+      const server = await verifyServerOwnership(req, res, id);
       if (!server) return;
 
       if (server.phase?.toLowerCase() !== 'running') {
@@ -1293,7 +1326,7 @@ app.get(
       }
 
       // Get player list using RCON
-      const listResult = await k8sClient.executeCommand(name, 'list');
+      const listResult = await k8sClient.executeCommand(server.name, 'list');
 
       // Parse "There are X of a max of Y players online: player1, player2"
       const listMatch = listResult.match(
@@ -1335,8 +1368,8 @@ app.get(
 
           // Only fetch health and gamemode for list view
           const dataPromises = [
-            k8sClient.executeCommand(name, `data get entity ${playerName} Health`),
-            k8sClient.executeCommand(name, `data get entity ${playerName} playerGameType`),
+            k8sClient.executeCommand(server.name, `data get entity ${playerName} Health`),
+            k8sClient.executeCommand(server.name, `data get entity ${playerName} playerGameType`),
           ];
 
           const [healthStr, gameTypeStr] = (await Promise.race([
@@ -1392,12 +1425,12 @@ app.get(
 
 // Get detailed data for a specific player
 app.get(
-  '/api/v1/servers/:name/players/:playerName',
+  '/api/v1/servers/:id/players/:playerName',
   requireAuth,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { name, playerName } = req.params;
-      const server = await verifyServerOwnership(req, res, name);
+      const { id, playerName } = req.params;
+      const server = await verifyServerOwnership(req, res, id);
       if (!server) return;
 
       if (server.phase?.toLowerCase() !== 'running') {
@@ -1408,7 +1441,7 @@ app.get(
       }
 
       // Verify player is online
-      const listResult = await k8sClient.executeCommand(name, 'list');
+      const listResult = await k8sClient.executeCommand(server.name, 'list');
       const listMatch = listResult.match(
         /There are (\d+) of a max of (\d+) players online[:\s]*(.*)?/i
       );
@@ -1438,15 +1471,15 @@ app.get(
       );
 
       const dataPromises = [
-        k8sClient.executeCommand(name, `data get entity ${playerName} Health`),
-        k8sClient.executeCommand(name, `data get entity ${playerName} foodLevel`),
-        k8sClient.executeCommand(name, `data get entity ${playerName} Pos`),
-        k8sClient.executeCommand(name, `data get entity ${playerName} Dimension`),
-        k8sClient.executeCommand(name, `data get entity ${playerName} playerGameType`),
-        k8sClient.executeCommand(name, `data get entity ${playerName} Inventory`),
-        k8sClient.executeCommand(name, `data get entity ${playerName} XpLevel`),
-        k8sClient.executeCommand(name, `data get entity ${playerName} SelectedItemSlot`),
-        k8sClient.executeCommand(name, `data get entity ${playerName} equipment`),
+        k8sClient.executeCommand(server.name, `data get entity ${playerName} Health`),
+        k8sClient.executeCommand(server.name, `data get entity ${playerName} foodLevel`),
+        k8sClient.executeCommand(server.name, `data get entity ${playerName} Pos`),
+        k8sClient.executeCommand(server.name, `data get entity ${playerName} Dimension`),
+        k8sClient.executeCommand(server.name, `data get entity ${playerName} playerGameType`),
+        k8sClient.executeCommand(server.name, `data get entity ${playerName} Inventory`),
+        k8sClient.executeCommand(server.name, `data get entity ${playerName} XpLevel`),
+        k8sClient.executeCommand(server.name, `data get entity ${playerName} SelectedItemSlot`),
+        k8sClient.executeCommand(server.name, `data get entity ${playerName} equipment`),
       ];
 
       const results = (await Promise.race([Promise.all(dataPromises), timeoutPromise])) as string[];
@@ -1886,15 +1919,15 @@ function parseInventoryItem(itemStr: string): any | null {
 
 // Get whitelist
 app.get(
-  '/api/v1/servers/:name/whitelist',
+  '/api/v1/servers/:id/whitelist',
   requireAuth,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { name } = req.params;
-      const server = await verifyServerOwnership(req, res, name);
+      const { id } = req.params;
+      const server = await verifyServerOwnership(req, res, id);
       if (!server) return;
 
-      const result = await k8sClient.executeCommand(name, 'whitelist list');
+      const result = await k8sClient.executeCommand(server.name, 'whitelist list');
 
       // Parse "There are X whitelisted players: player1, player2" or "There are no whitelisted players"
       const match = result.match(/There are (\d+) whitelisted players?:\s*(.*)/i);
@@ -1929,12 +1962,12 @@ interface WhitelistAddBody {
 }
 
 app.post(
-  '/api/v1/servers/:name/whitelist',
+  '/api/v1/servers/:id/whitelist',
   requireAuth,
   async (req: AuthenticatedRequest & { body: WhitelistAddBody }, res: Response) => {
     try {
-      const { name } = req.params;
-      const server = await verifyServerOwnership(req, res, name);
+      const { id } = req.params;
+      const server = await verifyServerOwnership(req, res, id);
       if (!server) return;
 
       const { player } = req.body;
@@ -1942,7 +1975,7 @@ app.post(
       // Validate player name format to prevent command injection
       if (!validatePlayerName(res, player)) return;
 
-      const result = await k8sClient.executeCommand(name, `whitelist add ${player}`);
+      const result = await k8sClient.executeCommand(server.name, `whitelist add ${player}`);
 
       res.json({
         message: `Player '${player}' added to whitelist`,
@@ -1960,18 +1993,18 @@ app.post(
 
 // Remove player from whitelist
 app.delete(
-  '/api/v1/servers/:name/whitelist/:player',
+  '/api/v1/servers/:id/whitelist/:player',
   requireAuth,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { name, player } = req.params;
-      const server = await verifyServerOwnership(req, res, name);
+      const { id, player } = req.params;
+      const server = await verifyServerOwnership(req, res, id);
       if (!server) return;
 
       // Validate player name format to prevent command injection
       if (!validatePlayerName(res, player)) return;
 
-      const result = await k8sClient.executeCommand(name, `whitelist remove ${player}`);
+      const result = await k8sClient.executeCommand(server.name, `whitelist remove ${player}`);
 
       res.json({
         message: `Player '${player}' removed from whitelist`,
@@ -1993,18 +2026,18 @@ interface WhitelistToggleBody {
 }
 
 app.put(
-  '/api/v1/servers/:name/whitelist/toggle',
+  '/api/v1/servers/:id/whitelist/toggle',
   requireAuth,
   async (req: AuthenticatedRequest & { body: WhitelistToggleBody }, res: Response) => {
     try {
-      const { name } = req.params;
-      const server = await verifyServerOwnership(req, res, name);
+      const { id } = req.params;
+      const server = await verifyServerOwnership(req, res, id);
       if (!server) return;
 
       const { enabled } = req.body;
 
       const command = enabled ? 'whitelist on' : 'whitelist off';
-      const result = await k8sClient.executeCommand(name, command);
+      const result = await k8sClient.executeCommand(server.name, command);
 
       res.json({
         message: `Whitelist ${enabled ? 'enabled' : 'disabled'}`,
@@ -2023,12 +2056,12 @@ app.put(
 
 // Get ops list
 app.get(
-  '/api/v1/servers/:name/ops',
+  '/api/v1/servers/:id/ops',
   requireAuth,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { name } = req.params;
-      const server = await verifyServerOwnership(req, res, name);
+      const { id } = req.params;
+      const server = await verifyServerOwnership(req, res, id);
       if (!server) return;
 
       // Note: Minecraft doesn't have a direct "op list" command, we need to use /list with parse
@@ -2057,12 +2090,12 @@ interface OpAddBody {
 }
 
 app.post(
-  '/api/v1/servers/:name/ops',
+  '/api/v1/servers/:id/ops',
   requireAuth,
   async (req: AuthenticatedRequest & { body: OpAddBody }, res: Response) => {
     try {
-      const { name } = req.params;
-      const server = await verifyServerOwnership(req, res, name);
+      const { id } = req.params;
+      const server = await verifyServerOwnership(req, res, id);
       if (!server) return;
 
       const { player } = req.body;
@@ -2070,7 +2103,7 @@ app.post(
       // Validate player name format to prevent command injection
       if (!validatePlayerName(res, player)) return;
 
-      const result = await k8sClient.executeCommand(name, `op ${player}`);
+      const result = await k8sClient.executeCommand(server.name, `op ${player}`);
 
       res.json({
         message: `Operator status granted to '${player}'`,
@@ -2088,18 +2121,18 @@ app.post(
 
 // Revoke operator status
 app.delete(
-  '/api/v1/servers/:name/ops/:player',
+  '/api/v1/servers/:id/ops/:player',
   requireAuth,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { name, player } = req.params;
-      const server = await verifyServerOwnership(req, res, name);
+      const { id, player } = req.params;
+      const server = await verifyServerOwnership(req, res, id);
       if (!server) return;
 
       // Validate player name format to prevent command injection
       if (!validatePlayerName(res, player)) return;
 
-      const result = await k8sClient.executeCommand(name, `deop ${player}`);
+      const result = await k8sClient.executeCommand(server.name, `deop ${player}`);
 
       res.json({
         message: `Operator status revoked from '${player}'`,
@@ -2117,15 +2150,15 @@ app.delete(
 
 // Get ban list
 app.get(
-  '/api/v1/servers/:name/bans',
+  '/api/v1/servers/:id/bans',
   requireAuth,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { name } = req.params;
-      const server = await verifyServerOwnership(req, res, name);
+      const { id } = req.params;
+      const server = await verifyServerOwnership(req, res, id);
       if (!server) return;
 
-      const result = await k8sClient.executeCommand(name, 'banlist players');
+      const result = await k8sClient.executeCommand(server.name, 'banlist players');
 
       // Parse "There are X ban(s):" followed by list or "There are no bans"
       const match = result.match(/There are (\d+) ban\(s\):\s*(.*)/is);
@@ -2165,12 +2198,12 @@ interface BanAddBody {
 }
 
 app.post(
-  '/api/v1/servers/:name/bans',
+  '/api/v1/servers/:id/bans',
   requireAuth,
   async (req: AuthenticatedRequest & { body: BanAddBody }, res: Response) => {
     try {
-      const { name } = req.params;
-      const server = await verifyServerOwnership(req, res, name);
+      const { id } = req.params;
+      const server = await verifyServerOwnership(req, res, id);
       if (!server) return;
 
       const { player, reason } = req.body;
@@ -2179,7 +2212,7 @@ app.post(
       if (!validatePlayerName(res, player)) return;
 
       const command = reason ? `ban ${player} ${reason}` : `ban ${player}`;
-      const result = await k8sClient.executeCommand(name, command);
+      const result = await k8sClient.executeCommand(server.name, command);
 
       res.json({
         message: `Player '${player}' has been banned`,
@@ -2197,18 +2230,18 @@ app.post(
 
 // Unban a player (pardon)
 app.delete(
-  '/api/v1/servers/:name/bans/:player',
+  '/api/v1/servers/:id/bans/:player',
   requireAuth,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { name, player } = req.params;
-      const server = await verifyServerOwnership(req, res, name);
+      const { id, player } = req.params;
+      const server = await verifyServerOwnership(req, res, id);
       if (!server) return;
 
       // Validate player name format to prevent command injection
       if (!validatePlayerName(res, player)) return;
 
-      const result = await k8sClient.executeCommand(name, `pardon ${player}`);
+      const result = await k8sClient.executeCommand(server.name, `pardon ${player}`);
 
       res.json({
         message: `Player '${player}' has been unbanned`,
@@ -2231,12 +2264,12 @@ interface KickBody {
 }
 
 app.post(
-  '/api/v1/servers/:name/kick',
+  '/api/v1/servers/:id/kick',
   requireAuth,
   async (req: AuthenticatedRequest & { body: KickBody }, res: Response) => {
     try {
-      const { name } = req.params;
-      const server = await verifyServerOwnership(req, res, name);
+      const { id } = req.params;
+      const server = await verifyServerOwnership(req, res, id);
       if (!server) return;
 
       const { player, reason } = req.body;
@@ -2245,7 +2278,7 @@ app.post(
       if (!validatePlayerName(res, player)) return;
 
       const command = reason ? `kick ${player} ${reason}` : `kick ${player}`;
-      const result = await k8sClient.executeCommand(name, command);
+      const result = await k8sClient.executeCommand(server.name, command);
 
       res.json({
         message: `Player '${player}' has been kicked`,
@@ -2263,15 +2296,15 @@ app.post(
 
 // Get IP ban list
 app.get(
-  '/api/v1/servers/:name/bans/ips',
+  '/api/v1/servers/:id/bans/ips',
   requireAuth,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { name } = req.params;
-      const server = await verifyServerOwnership(req, res, name);
+      const { id } = req.params;
+      const server = await verifyServerOwnership(req, res, id);
       if (!server) return;
 
-      const result = await k8sClient.executeCommand(name, 'banlist ips');
+      const result = await k8sClient.executeCommand(server.name, 'banlist ips');
 
       // Parse similar to player bans
       const match = result.match(/There are (\d+) ban\(s\):\s*(.*)/is);
@@ -2303,12 +2336,12 @@ interface BanIpBody {
 }
 
 app.post(
-  '/api/v1/servers/:name/bans/ips',
+  '/api/v1/servers/:id/bans/ips',
   requireAuth,
   async (req: AuthenticatedRequest & { body: BanIpBody }, res: Response) => {
     try {
-      const { name } = req.params;
-      const server = await verifyServerOwnership(req, res, name);
+      const { id } = req.params;
+      const server = await verifyServerOwnership(req, res, id);
       if (!server) return;
 
       const { ip, reason } = req.body;
@@ -2321,7 +2354,7 @@ app.post(
       }
 
       const command = reason ? `ban-ip ${ip} ${reason}` : `ban-ip ${ip}`;
-      const result = await k8sClient.executeCommand(name, command);
+      const result = await k8sClient.executeCommand(server.name, command);
 
       res.json({
         message: `IP '${ip}' has been banned`,
@@ -2339,15 +2372,15 @@ app.post(
 
 // Unban an IP
 app.delete(
-  '/api/v1/servers/:name/bans/ips/:ip',
+  '/api/v1/servers/:id/bans/ips/:ip',
   requireAuth,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { name, ip } = req.params;
-      const server = await verifyServerOwnership(req, res, name);
+      const { id, ip } = req.params;
+      const server = await verifyServerOwnership(req, res, id);
       if (!server) return;
 
-      const result = await k8sClient.executeCommand(name, `pardon-ip ${ip}`);
+      const result = await k8sClient.executeCommand(server.name, `pardon-ip ${ip}`);
 
       res.json({
         message: `IP '${ip}' has been unbanned`,
@@ -2369,12 +2402,12 @@ interface ExecuteCommandBody {
 }
 
 app.post(
-  '/api/v1/servers/:name/console',
+  '/api/v1/servers/:id/console',
   requireAuth,
   async (req: AuthenticatedRequest & { body: ExecuteCommandBody }, res: Response) => {
     try {
-      const { name } = req.params;
-      const server = await verifyServerOwnership(req, res, name);
+      const { id } = req.params;
+      const server = await verifyServerOwnership(req, res, id);
       if (!server) return;
 
       const { command } = req.body;
@@ -2386,12 +2419,12 @@ app.post(
         });
       }
 
-      const result = await k8sClient.executeCommand(name, command);
+      const result = await k8sClient.executeCommand(server.name, command);
 
       res.json({
         command,
         result,
-        serverName: name,
+        serverId: id,
       });
     } catch (error: any) {
       console.error('Failed to execute command:', error);
@@ -2413,18 +2446,18 @@ interface CreateBackupBody {
 }
 
 app.post(
-  '/api/v1/servers/:name/backups',
+  '/api/v1/servers/:id/backups',
   requireAuth,
   async (req: AuthenticatedRequest & { body: CreateBackupBody }, res: Response) => {
     try {
-      const { name: serverName } = req.params;
-      const server = await verifyServerOwnership(req, res, serverName);
+      const { id: serverId } = req.params;
+      const server = await verifyServerOwnership(req, res, serverId);
       if (!server) return;
 
       const { name, description, tags } = req.body;
 
       const backup = await backupService.createBackup({
-        serverId: serverName,
+        serverId: serverId,
         tenantId: req.userId!,
         name,
         description,
@@ -2448,16 +2481,16 @@ app.post(
 
 // List backups for a server
 app.get(
-  '/api/v1/servers/:name/backups',
+  '/api/v1/servers/:id/backups',
   requireAuth,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { name: serverName } = req.params;
-      const server = await verifyServerOwnership(req, res, serverName);
+      const { id: serverId } = req.params;
+      const server = await verifyServerOwnership(req, res, serverId);
       if (!server) return;
 
       // Pass both serverId AND tenantId for additional security
-      const backups = await backupService.listBackups(serverName, req.userId);
+      const backups = await backupService.listBackups(serverId, req.userId);
 
       res.json({
         backups,
@@ -2574,20 +2607,20 @@ app.post(
 
 // Get backup schedule for a server
 app.get(
-  '/api/v1/servers/:name/backups/schedule',
+  '/api/v1/servers/:id/backups/schedule',
   requireAuth,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { name } = req.params;
-      const server = await verifyServerOwnership(req, res, name);
+      const { id } = req.params;
+      const server = await verifyServerOwnership(req, res, id);
       if (!server) return;
 
-      const schedule = await backupService.getSchedule(name);
+      const schedule = await backupService.getSchedule(id);
 
       if (!schedule) {
         // Return default schedule if none exists
         return res.json({
-          serverId: name,
+          serverId: id,
           enabled: false,
           intervalHours: 24,
           retentionCount: 7,
@@ -2613,12 +2646,12 @@ interface SetScheduleBody {
 }
 
 app.put(
-  '/api/v1/servers/:name/backups/schedule',
+  '/api/v1/servers/:id/backups/schedule',
   requireAuth,
   async (req: AuthenticatedRequest & { body: SetScheduleBody }, res: Response) => {
     try {
-      const { name } = req.params;
-      const server = await verifyServerOwnership(req, res, name);
+      const { id } = req.params;
+      const server = await verifyServerOwnership(req, res, id);
       if (!server) return;
 
       const { enabled, intervalHours, retentionCount } = req.body;
@@ -2645,7 +2678,7 @@ app.put(
       }
 
       // Pass tenantId so scheduled backups are owned by the correct user
-      const schedule = await backupService.setSchedule(name, req.userId!, {
+      const schedule = await backupService.setSchedule(id, req.userId!, {
         enabled,
         intervalHours,
         retentionCount,
@@ -2924,22 +2957,22 @@ API Endpoints:
   Servers:
     GET    /api/v1/servers              - List all servers
     POST   /api/v1/servers              - Create a new server
-    GET    /api/v1/servers/:name        - Get server details
-    PATCH  /api/v1/servers/:name        - Update server config
-    DELETE /api/v1/servers/:name        - Delete a server
-    GET    /api/v1/servers/:name/logs   - Get server logs
-    GET    /api/v1/servers/:name/pod    - Get pod status
-    GET    /api/v1/servers/:name/players - Get online players
-    POST   /api/v1/servers/:name/scale  - Scale server resources
-    POST   /api/v1/servers/:name/stop   - Stop a server
-    POST   /api/v1/servers/:name/start  - Start a server
-    POST   /api/v1/servers/:name/console - Execute RCON command
-    PUT    /api/v1/servers/:name/auto-stop  - Configure auto-stop
-    PUT    /api/v1/servers/:name/auto-start - Configure auto-start
+    GET    /api/v1/servers/:id        - Get server details (by UUID)
+    PATCH  /api/v1/servers/:id        - Update server config
+    DELETE /api/v1/servers/:id        - Delete a server
+    GET    /api/v1/servers/:id/logs   - Get server logs
+    GET    /api/v1/servers/:id/pod    - Get pod status
+    GET    /api/v1/servers/:id/players - Get online players
+    POST   /api/v1/servers/:id/scale  - Scale server resources
+    POST   /api/v1/servers/:id/stop   - Stop a server
+    POST   /api/v1/servers/:id/start  - Start a server
+    POST   /api/v1/servers/:id/console - Execute RCON command
+    PUT    /api/v1/servers/:id/auto-stop  - Configure auto-stop
+    PUT    /api/v1/servers/:id/auto-start - Configure auto-start
 
   Backups:
-    POST   /api/v1/servers/:name/backups - Create a backup
-    GET    /api/v1/servers/:name/backups - List server backups
+    POST   /api/v1/servers/:id/backups - Create a backup
+    GET    /api/v1/servers/:id/backups - List server backups
     GET    /api/v1/backups/:backupId     - Get backup details
     DELETE /api/v1/backups/:backupId     - Delete a backup
     POST   /api/v1/backups/:id/restore   - Restore from backup

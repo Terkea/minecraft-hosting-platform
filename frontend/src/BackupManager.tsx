@@ -32,7 +32,7 @@ import {
 } from './api';
 
 interface BackupManagerProps {
-  serverName: string;
+  serverId: string;
   isRunning: boolean;
 }
 
@@ -88,7 +88,7 @@ const StatusBadge = ({ status }: { status: Backup['status'] }) => {
   );
 };
 
-export function BackupManager({ serverName, isRunning }: BackupManagerProps) {
+export function BackupManager({ serverId, isRunning }: BackupManagerProps) {
   const [backups, setBackups] = useState<Backup[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -126,7 +126,7 @@ export function BackupManager({ serverName, isRunning }: BackupManagerProps) {
     try {
       setLoading(true);
       setError(null);
-      const response = await listBackups(serverName);
+      const response = await listBackups(serverId);
       setBackups(response.backups);
     } catch (err: any) {
       setError(err.message);
@@ -137,7 +137,7 @@ export function BackupManager({ serverName, isRunning }: BackupManagerProps) {
 
   const fetchSchedule = async () => {
     try {
-      const scheduleData = await getBackupSchedule(serverName);
+      const scheduleData = await getBackupSchedule(serverId);
       setSchedule(scheduleData);
       setScheduleEnabled(scheduleData.enabled);
       setScheduleInterval(scheduleData.intervalHours);
@@ -152,7 +152,7 @@ export function BackupManager({ serverName, isRunning }: BackupManagerProps) {
     fetchBackups();
     fetchSchedule();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [serverName]);
+  }, [serverId]);
 
   // Poll for updates only when there are pending/in_progress backups
   const hasPendingBackups = backups.some(
@@ -164,7 +164,7 @@ export function BackupManager({ serverName, isRunning }: BackupManagerProps) {
     const interval = setInterval(fetchBackups, 3000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [serverName, hasPendingBackups]);
+  }, [serverId, hasPendingBackups]);
 
   const showSuccessMessage = (msg: string) => {
     setSuccess(msg);
@@ -175,7 +175,7 @@ export function BackupManager({ serverName, isRunning }: BackupManagerProps) {
     try {
       setCreating(true);
       setError(null);
-      await createBackup(serverName, {
+      await createBackup(serverId, {
         name: backupName || undefined,
         description: backupDescription || undefined,
       });
@@ -301,7 +301,7 @@ export function BackupManager({ serverName, isRunning }: BackupManagerProps) {
     try {
       setSavingSchedule(true);
       setError(null);
-      await setBackupSchedule(serverName, {
+      await setBackupSchedule(serverId, {
         enabled: scheduleEnabled,
         intervalHours: scheduleInterval,
         retentionCount: scheduleRetention,

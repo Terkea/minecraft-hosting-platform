@@ -38,7 +38,7 @@ import {
 
 interface PlayerViewProps {
   player: PlayerData;
-  serverName: string;
+  serverId: string;
   onBack: () => void;
   onRefresh: () => void;
   isLoading: boolean;
@@ -563,7 +563,7 @@ const GAMEMODES = [
   { value: 'spectator', label: 'Spectator', color: 'purple' },
 ];
 
-export function PlayerView({ player, serverName, onBack, onRefresh, isLoading }: PlayerViewProps) {
+export function PlayerView({ player, serverId, onBack, onRefresh, isLoading }: PlayerViewProps) {
   const [showEnderChest, setShowEnderChest] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
@@ -596,7 +596,7 @@ export function PlayerView({ player, serverName, onBack, onRefresh, isLoading }:
   const handleGamemodeChange = async (gamemode: string) => {
     setActionLoading(`gamemode-${gamemode}`);
     try {
-      await setPlayerGamemode(serverName, player.name, gamemode);
+      await setPlayerGamemode(serverId, player.name, gamemode);
       showSuccess('Gamemode Changed', `${player.name} is now in ${gamemode} mode`);
       onRefresh();
     } catch (err: any) {
@@ -609,7 +609,7 @@ export function PlayerView({ player, serverName, onBack, onRefresh, isLoading }:
   const handleHeal = async () => {
     setActionLoading('heal');
     try {
-      await healPlayer(serverName, player.name);
+      await healPlayer(serverId, player.name);
       showSuccess('Player Healed', `${player.name} has been healed`);
       onRefresh();
     } catch (err: any) {
@@ -622,7 +622,7 @@ export function PlayerView({ player, serverName, onBack, onRefresh, isLoading }:
   const handleFeed = async () => {
     setActionLoading('feed');
     try {
-      await feedPlayer(serverName, player.name);
+      await feedPlayer(serverId, player.name);
       showSuccess('Player Fed', `${player.name} has been fed`);
       onRefresh();
     } catch (err: any) {
@@ -635,7 +635,7 @@ export function PlayerView({ player, serverName, onBack, onRefresh, isLoading }:
   const handleClearEffects = async () => {
     setActionLoading('clear-effects');
     try {
-      await clearPlayerEffects(serverName, player.name);
+      await clearPlayerEffects(serverId, player.name);
       showSuccess('Effects Cleared', `All effects removed from ${player.name}`);
       onRefresh();
     } catch (err: any) {
@@ -649,7 +649,7 @@ export function PlayerView({ player, serverName, onBack, onRefresh, isLoading }:
     if (!confirm(`Are you sure you want to kick ${player.name}?`)) return;
     setActionLoading('kick');
     try {
-      await kickPlayer(serverName, player.name);
+      await kickPlayer(serverId, player.name);
       showSuccess(`Kicked ${player.name}`);
       onBack();
     } catch (err: any) {
@@ -668,7 +668,7 @@ export function PlayerView({ player, serverName, onBack, onRefresh, isLoading }:
       return;
     setActionLoading('ban');
     try {
-      await banPlayer(serverName, player.name);
+      await banPlayer(serverId, player.name);
       showSuccess(`Banned ${player.name}`);
       onBack();
     } catch (err: any) {
@@ -681,7 +681,7 @@ export function PlayerView({ player, serverName, onBack, onRefresh, isLoading }:
   const handleGrantOp = async () => {
     setActionLoading('op');
     try {
-      await grantOp(serverName, player.name);
+      await grantOp(serverId, player.name);
       showSuccess(`Granted operator to ${player.name}`);
     } catch (err: any) {
       showError(err.message);
@@ -693,7 +693,7 @@ export function PlayerView({ player, serverName, onBack, onRefresh, isLoading }:
   const handleRevokeOp = async () => {
     setActionLoading('deop');
     try {
-      await revokeOp(serverName, player.name);
+      await revokeOp(serverId, player.name);
       showSuccess(`Revoked operator from ${player.name}`);
     } catch (err: any) {
       showError(err.message);

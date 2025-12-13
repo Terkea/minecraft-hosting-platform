@@ -126,7 +126,7 @@ function AuthenticatedApp() {
           }
         />
         <Route
-          path="/servers/:serverName"
+          path="/servers/:serverId"
           element={
             <ProtectedRoute>
               <ServerDetail connected={connected} />
@@ -134,7 +134,7 @@ function AuthenticatedApp() {
           }
         />
         <Route
-          path="/servers/:serverName/:tab"
+          path="/servers/:serverId/:tab"
           element={
             <ProtectedRoute>
               <ServerDetail connected={connected} />
@@ -142,7 +142,7 @@ function AuthenticatedApp() {
           }
         />
         <Route
-          path="/servers/:serverName/players/:playerName"
+          path="/servers/:serverId/players/:playerName"
           element={
             <ProtectedRoute>
               <ServerDetail connected={connected} />

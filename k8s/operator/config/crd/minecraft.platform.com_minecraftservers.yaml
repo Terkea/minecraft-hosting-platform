@@ -18,6 +18,9 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
+    - jsonPath: .spec.displayName
+      name: Display Name
+      type: string
     - jsonPath: .status.phase
       name: Status
       type: string
@@ -229,6 +232,11 @@ spec:
                     description: WhiteList enables whitelist mode
                     type: boolean
                 type: object
+              displayName:
+                description: DisplayName is the user-friendly name shown in the UI
+                maxLength: 64
+                minLength: 1
+                type: string
               image:
                 default: itzg/minecraft-server:latest
                 description: Image is the Docker image to use for the Minecraft server
@@ -315,7 +323,9 @@ spec:
                 - storage
                 type: object
               serverId:
-                description: ServerID is the unique identifier for this server instance
+                description: |-
+                  ServerID is the unique UUID identifier for this server instance
+                  This is the primary identifier used throughout the system
                 type: string
               serverType:
                 default: VANILLA
@@ -350,6 +360,7 @@ spec:
                 type: string
             required:
             - config
+            - displayName
             - resources
             - serverId
             - tenantId
